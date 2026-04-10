@@ -79,9 +79,15 @@ const createAdmissionFromEnquiryValidation = [
     .isFloat({ min: 0 })
     .withMessage('Total fees must be a positive number'),
   body('installments')
-    .optional()
-    .isArray()
-    .withMessage('Installments must be an array'),
+    .if(body('paymentType').equals('INSTALLMENT'))
+    .notEmpty()
+    .withMessage('Installments are required for INSTALLMENT payment type')
+    .isArray({ min: 1 })
+    .withMessage('At least one installment is required'),
+  body('installments')
+    .if(body('paymentType').equals('ONE_TIME'))
+    .isArray({ max: 0 })
+    .withMessage('ONE_TIME payment type should not have installments'),
   body('installments.*.amount')
     .if(body('paymentType').equals('INSTALLMENT'))
     .notEmpty()
