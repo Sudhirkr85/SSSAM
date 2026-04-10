@@ -235,7 +235,10 @@ class AdmissionService {
 
     const existingAdmission = await Admission.findOne({ enquiryId });
     if (existingAdmission) {
-      throw new AppError('Admission already exists for this enquiry', 400);
+      return {
+        admission: await this.getAdmissionById(existingAdmission._id),
+        alreadyExists: true
+      };
     }
 
     if (!Object.values(PAYMENT_TYPES).includes(paymentType)) {
@@ -320,7 +323,10 @@ class AdmissionService {
 
     await enquiry.save();
 
-    return await this.getAdmissionById(admission._id);
+    return {
+      admission: await this.getAdmissionById(admission._id),
+      alreadyExists: false
+    };
   }
 
   async listAdmissions(queryParams) {

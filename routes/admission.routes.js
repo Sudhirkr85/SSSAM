@@ -10,7 +10,6 @@ const {
 } = require('../middleware');
 const { ROLES } = require('../config/constants');
 const {
-  createAdmissionValidation,
   updateTotalFeesValidation,
   admissionIdParamValidation,
   admissionEnquiryIdParamValidation,
@@ -19,14 +18,6 @@ const {
 } = require('../validations');
 
 router.use(authMiddleware);
-
-router.post(
-  '/',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  createAdmissionValidation,
-  validateRequest,
-  admissionController.createAdmission
-);
 
 router.get(
   '/',
