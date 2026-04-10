@@ -64,7 +64,7 @@ router.post(
   enquiryController.addNote
 );
 
-router.put(
+router.patch(
   '/:id/followup',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   enquiryIdParamValidation,
