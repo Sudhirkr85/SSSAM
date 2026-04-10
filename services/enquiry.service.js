@@ -21,8 +21,7 @@ class EnquiryService {
 
   async getEnquiryById(id) {
     const enquiry = await Enquiry.findById(id)
-      .populate('assignedTo', 'name email')
-      .populate('notes.createdBy', 'name');
+      .populate('assignedTo', 'name email');
 
     if (!enquiry) {
       throw new AppError('Enquiry not found', 404);
@@ -79,7 +78,6 @@ class EnquiryService {
     const [enquiries, totalCount] = await Promise.all([
       Enquiry.find(filter)
         .populate('assignedTo', 'name email')
-        .populate('notes.createdBy', 'name')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -188,11 +186,11 @@ class EnquiryService {
       enquiry.assignedTo = user.id;
     }
 
-    enquiry.notes.push({
-      text: noteText,
-      createdBy: user.id,
-      timestamp: new Date()
-    });
+    const timestamp = new Date().toLocaleString();
+    const newNote = `[${timestamp}] ${user.name}: ${noteText}`;
+    enquiry.notes = enquiry.notes 
+      ? `${enquiry.notes}\n${newNote}` 
+      : newNote;
 
     enquiry.timeline.push({
       type: 'note',
