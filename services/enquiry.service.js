@@ -105,12 +105,20 @@ class EnquiryService {
     };
   }
 
+  _checkIfConverted(enquiry) {
+    if (enquiry.status === ENQUIRY_STATUSES.CONVERTED) {
+      throw new AppError('Cannot modify a converted enquiry', 400);
+    }
+  }
+
   async updateStatus(enquiryId, newStatus, user) {
     const enquiry = await Enquiry.findById(enquiryId);
 
     if (!enquiry) {
       throw new AppError('Enquiry not found', 404);
     }
+
+    this._checkIfConverted(enquiry);
 
     const wasUnassigned = enquiry.assignedTo === null;
     const isFirstAction = wasUnassigned && user.role === ROLES.COUNSELOR;
@@ -179,6 +187,8 @@ class EnquiryService {
       throw new AppError('Enquiry not found', 404);
     }
 
+    this._checkIfConverted(enquiry);
+
     const wasUnassigned = enquiry.assignedTo === null;
     const isFirstAction = wasUnassigned && user.role === ROLES.COUNSELOR;
 
@@ -215,6 +225,8 @@ class EnquiryService {
     if (!enquiry) {
       throw new AppError('Enquiry not found', 404);
     }
+
+    this._checkIfConverted(enquiry);
 
     enquiry.followUpDate = followUpDate;
     
@@ -287,6 +299,8 @@ class EnquiryService {
     if (!enquiry) {
       throw new AppError('Enquiry not found', 404);
     }
+
+    this._checkIfConverted(enquiry);
 
     await Enquiry.findByIdAndDelete(enquiryId);
     return { message: 'Enquiry deleted successfully' };
