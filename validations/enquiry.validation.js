@@ -83,8 +83,13 @@ const listEnquiriesValidation = [
   
   query('status')
     .optional()
-    .isIn(STATUS_LIST)
-    .withMessage(`Status must be one of: ${STATUS_LIST.join(', ')}`),
+    .custom((value) => {
+      if (!value || value === '') return true;
+      if (!STATUS_LIST.includes(value)) {
+        throw new Error(`Status must be one of: ${STATUS_LIST.join(', ')}`);
+      }
+      return true;
+    }),
   
   query('search')
     .optional()
