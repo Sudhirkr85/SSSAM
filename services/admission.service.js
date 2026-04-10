@@ -1,7 +1,43 @@
 const { Admission, Enquiry, Payment } = require('../models');
 const AppError = require('../utils/AppError');
+const { ENQUIRY_STATUSES } = require('../config/constants');
 
 class AdmissionService {
+  async createAdmission(admissionData, user) {
+    const { enquiryId, totalFees = 0, admissionDate = new Date() } = admissionData;
+
+    const enquiry = await Enquiry.findById(enquiryId);
+    if (!enquiry) {
+      throw new AppError('Enquiry not found', 404);
+    }
+
+    const existingAdmission = await Admission.findOne({ enquiryId });
+    if (existingAdmission) {
+      throw new AppError('Admission already exists for this enquiry', 400);
+    }
+
+    const admission = await Admission.create({
+      enquiryId,
+      admissionDate,
+      totalFees,
+      paidAmount: 0,
+      pendingAmount: totalFees,
+      isLocked: false
+    });
+
+    enquiry.status = ENQUIRY_STATUSES.CONVERTED;
+    enquiry.timeline.push({
+      type: 'converted',
+      message: `Admission created and enquiry converted by ${user.name}`,
+      user: user.id,
+      userName: user.name,
+      timestamp: new Date()
+    });
+    await enquiry.save();
+
+    return await this.getAdmissionById(admission._id);
+  }
+
   async getAdmissionById(id) {
     const admission = await Admission.findById(id)
       .populate('enquiryId', 'name mobile course status');

@@ -3,6 +3,11 @@ const { successResponse, paginatedResponse } = require('../utils/responseHelper'
 const catchAsync = require('../utils/catchAsync');
 
 class AdmissionController {
+  createAdmission = catchAsync(async (req, res) => {
+    const admission = await admissionService.createAdmission(req.body, req.user);
+    return successResponse(res, { admission }, 'Admission created successfully', 201);
+  });
+
   getAdmission = catchAsync(async (req, res) => {
     const admission = await admissionService.getAdmissionById(req.params.id);
     return successResponse(res, { admission }, 'Admission retrieved successfully');

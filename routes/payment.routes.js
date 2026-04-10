@@ -13,7 +13,7 @@ const {
   createPaymentValidation,
   updatePaymentValidation,
   paymentIdParamValidation,
-  admissionIdParamValidation
+  paymentAdmissionIdParamValidation
 } = require('../validations');
 
 router.use(authMiddleware);
@@ -29,7 +29,7 @@ router.post(
 router.get(
   '/admission/:admissionId',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  admissionIdParamValidation,
+  paymentAdmissionIdParamValidation,
   validateRequest,
   paymentController.getPaymentsByAdmission
 );
