@@ -51,7 +51,8 @@ class EnquiryService {
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
-        { mobile: { $regex: search, $options: 'i' } }
+        { mobile: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -255,6 +256,7 @@ class EnquiryService {
         const enquiry = await Enquiry.create({
           name: enquiryData.name,
           mobile: mobileStr,
+          email: enquiryData.email || null,
           course: enquiryData.course,
           source: enquiryData.source,
           status: enquiryData.status || 'New',

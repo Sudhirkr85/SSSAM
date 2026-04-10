@@ -12,7 +12,7 @@ const { ROLES } = require('../config/constants');
 const {
   updateTotalFeesValidation,
   admissionIdParamValidation,
-  enquiryIdParamValidation
+  admissionEnquiryIdParamValidation
 } = require('../validations');
 
 router.use(authMiddleware);
@@ -34,7 +34,7 @@ router.get(
 router.get(
   '/by-enquiry/:enquiryId',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  enquiryIdParamValidation,
+  admissionEnquiryIdParamValidation,
   validateRequest,
   admissionController.getAdmissionByEnquiry
 );

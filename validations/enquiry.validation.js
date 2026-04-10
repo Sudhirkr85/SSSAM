@@ -15,6 +15,13 @@ const createEnquiryValidation = [
     .withMessage('Mobile number is required')
     .matches(/^[0-9]{10}$/)
     .withMessage('Please provide a valid 10-digit mobile number'),
+
+  body('email')
+    .optional()
+    .trim()
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail(),
   
   body('course')
     .trim()
@@ -94,8 +101,17 @@ const listEnquiriesValidation = [
   query('search')
     .optional()
     .trim()
-    .isLength({ max: 100 })
-    .withMessage('Search term cannot exceed 100 characters'),
+    .custom((value) => {
+      if (!value || value === '') return true;
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (emailRegex.test(value)) {
+        return true;
+      }
+      if (value.length > 100) {
+        throw new Error('Search term cannot exceed 100 characters');
+      }
+      return true;
+    }),
   
   query('assignedTo')
     .optional()

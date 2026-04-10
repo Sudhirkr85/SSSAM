@@ -31,7 +31,7 @@ module.exports = {
   enquiryIdParamValidation,
   updateTotalFeesValidation,
   admissionIdParamValidation,
-  enquiryIdParamValidation: enquiryIdParamForAdmissionValidation,
+  admissionEnquiryIdParamValidation: enquiryIdParamForAdmissionValidation,
   createPaymentValidation,
   updatePaymentValidation,
   paymentIdParamValidation,

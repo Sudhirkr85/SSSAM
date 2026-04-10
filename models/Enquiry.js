@@ -64,6 +64,16 @@ const enquirySchema = new mongoose.Schema({
       'Please provide a valid 10-digit mobile number'
     ]
   },
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    match: [
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      'Please provide a valid email address'
+    ],
+    default: null
+  },
   course: {
     type: String,
     required: [true, 'Course is required'],
@@ -114,7 +124,7 @@ enquirySchema.pre('save', function(next) {
   next();
 });
 
-enquirySchema.index({ name: 'text', mobile: 'text' });
+enquirySchema.index({ name: 'text', mobile: 'text', email: 'text' });
 enquirySchema.index({ status: 1 });
 enquirySchema.index({ assignedTo: 1 });
 enquirySchema.index({ followUpDate: 1 });
