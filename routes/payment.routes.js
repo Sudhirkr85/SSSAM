@@ -5,7 +5,7 @@ const { paymentController } = require('../controllers');
 const {
   authMiddleware,
   roleMiddleware,
-  admissionAccessMiddleware,
+  paymentAccessMiddleware,
   validateRequest
 } = require('../middleware');
 const { ROLES } = require('../config/constants');
@@ -23,6 +23,7 @@ router.post(
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   createPaymentValidation,
   validateRequest,
+  paymentAccessMiddleware,
   paymentController.createPayment
 );
 

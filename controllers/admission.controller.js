@@ -33,6 +33,16 @@ class AdmissionController {
     const admission = await admissionService.lockAdmission(req.params.id, req.user);
     return successResponse(res, { admission }, 'Admission locked successfully');
   });
+
+  setPaymentPlan = catchAsync(async (req, res) => {
+    const { paymentType, installments } = req.body;
+    const admission = await admissionService.setPaymentPlan(
+      req.params.id,
+      { paymentType, installments },
+      req.user
+    );
+    return successResponse(res, { admission }, 'Payment plan set successfully');
+  });
 }
 
 module.exports = new AdmissionController();

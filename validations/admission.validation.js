@@ -37,9 +37,35 @@ const enquiryIdParamValidation = [
     .withMessage('Please provide a valid enquiry ID')
 ];
 
+const setPaymentPlanValidation = [
+  body('paymentType')
+    .notEmpty()
+    .withMessage('Payment type is required')
+    .isIn(['ONE_TIME', 'INSTALLMENT'])
+    .withMessage('Payment type must be ONE_TIME or INSTALLMENT'),
+  body('installments')
+    .optional()
+    .isArray()
+    .withMessage('Installments must be an array'),
+  body('installments.*.amount')
+    .if(body('paymentType').equals('INSTALLMENT'))
+    .notEmpty()
+    .withMessage('Installment amount is required')
+    .isFloat({ min: 1 })
+    .withMessage('Installment amount must be a positive number'),
+  body('installments.*.dueDate')
+    .if(body('paymentType').equals('INSTALLMENT'))
+    .notEmpty()
+    .withMessage('Installment due date is required')
+    .isISO8601()
+    .withMessage('Please provide a valid date for due date')
+    .toDate()
+];
+
 module.exports = {
   createAdmissionValidation,
   updateTotalFeesValidation,
   admissionIdParamValidation,
-  enquiryIdParamValidation
+  enquiryIdParamValidation,
+  setPaymentPlanValidation
 };

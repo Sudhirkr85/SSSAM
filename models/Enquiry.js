@@ -5,7 +5,7 @@ const timelineSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['created', 'status_change', 'note', 'followup', 'converted', 'payment', 'locked', 'fees_updated']
+    enum: ['created', 'status_change', 'note', 'followup', 'converted', 'payment', 'locked', 'fees_updated', 'payment_plan_set', 'installment_created', 'installment_paid', 'full_payment_completed']
   },
   message: {
     type: String,

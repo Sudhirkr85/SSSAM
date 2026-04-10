@@ -1,5 +1,27 @@
 const mongoose = require('mongoose');
 
+const installmentSchema = new mongoose.Schema({
+  amount: {
+    type: Number,
+    required: [true, 'Installment amount is required'],
+    min: [0, 'Installment amount cannot be negative']
+  },
+  dueDate: {
+    type: Date,
+    required: [true, 'Due date is required']
+  },
+  paidAmount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Paid amount cannot be negative']
+  },
+  status: {
+    type: String,
+    enum: ['Pending', 'Paid'],
+    default: 'Pending'
+  }
+}, { _id: true });
+
 const admissionSchema = new mongoose.Schema({
   enquiryId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -28,6 +50,15 @@ const admissionSchema = new mongoose.Schema({
       return this.totalFees;
     },
     min: [0, 'Pending amount cannot be negative']
+  },
+  paymentType: {
+    type: String,
+    enum: ['ONE_TIME', 'INSTALLMENT'],
+    default: null
+  },
+  installments: {
+    type: [installmentSchema],
+    default: []
   },
   isLocked: {
     type: Boolean,

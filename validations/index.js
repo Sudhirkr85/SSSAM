@@ -11,7 +11,8 @@ const {
   createAdmissionValidation,
   updateTotalFeesValidation,
   admissionIdParamValidation,
-  enquiryIdParamValidation: enquiryIdParamForAdmissionValidation
+  enquiryIdParamValidation: enquiryIdParamForAdmissionValidation,
+  setPaymentPlanValidation
 } = require('./admission.validation');
 const {
   createPaymentValidation,
@@ -34,6 +35,7 @@ module.exports = {
   updateTotalFeesValidation,
   admissionIdParamValidation,
   admissionEnquiryIdParamValidation: enquiryIdParamForAdmissionValidation,
+  setPaymentPlanValidation,
   createPaymentValidation,
   updatePaymentValidation,
   paymentIdParamValidation,

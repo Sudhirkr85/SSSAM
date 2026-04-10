@@ -1,6 +1,6 @@
 const { Admission, Enquiry, Payment } = require('../models');
 const AppError = require('../utils/AppError');
-const { ENQUIRY_STATUSES } = require('../config/constants');
+const { ENQUIRY_STATUSES, PAYMENT_TYPES, TIMELINE_TYPES } = require('../config/constants');
 
 class AdmissionService {
   async createAdmission(admissionData, user) {
@@ -111,6 +111,111 @@ class AdmissionService {
         timestamp: new Date()
       });
       await enquiry.save();
+    }
+
+    return await this.getAdmissionById(admissionId);
+  }
+
+  async setPaymentPlan(admissionId, paymentData, user) {
+    const { paymentType, installments = [] } = paymentData;
+
+    const admission = await Admission.findById(admissionId);
+    if (!admission) {
+      throw new AppError('Admission not found', 404);
+    }
+
+    if (admission.isLocked) {
+      throw new AppError('Cannot modify a locked admission', 403);
+    }
+
+    if (admission.paidAmount > 0) {
+      throw new AppError('Cannot change payment plan after payments have been made', 400);
+    }
+
+    if (!Object.values(PAYMENT_TYPES).includes(paymentType)) {
+      throw new AppError(`Invalid payment type. Must be ${PAYMENT_TYPES.ONE_TIME} or ${PAYMENT_TYPES.INSTALLMENT}`, 400);
+    }
+
+    const enquiry = await Enquiry.findById(admission.enquiryId);
+
+    if (paymentType === PAYMENT_TYPES.ONE_TIME) {
+      if (installments.length > 0) {
+        throw new AppError('ONE_TIME payment type should not have installments', 400);
+      }
+
+      admission.paymentType = PAYMENT_TYPES.ONE_TIME;
+      admission.installments = [];
+      await admission.save();
+
+      if (enquiry) {
+        enquiry.timeline.push({
+          type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
+          message: `Payment plan set to ONE_TIME by ${user.name}`,
+          user: user.id,
+          userName: user.name,
+          timestamp: new Date(),
+          metadata: { paymentType: PAYMENT_TYPES.ONE_TIME }
+        });
+        await enquiry.save();
+      }
+    } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
+      if (!installments || installments.length === 0) {
+        throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
+      }
+
+      const totalInstallmentAmount = installments.reduce((sum, inst) => sum + inst.amount, 0);
+      if (totalInstallmentAmount !== admission.totalFees) {
+        throw new AppError(
+          `Installments total (₹${totalInstallmentAmount}) must equal total fees (₹${admission.totalFees})`,
+          400
+        );
+      }
+
+      const now = new Date();
+      for (const inst of installments) {
+        if (new Date(inst.dueDate) < now) {
+          throw new AppError('Installment due dates must be in the future', 400);
+        }
+      }
+
+      const formattedInstallments = installments.map(inst => ({
+        amount: inst.amount,
+        dueDate: new Date(inst.dueDate),
+        paidAmount: 0,
+        status: 'Pending'
+      }));
+
+      admission.paymentType = PAYMENT_TYPES.INSTALLMENT;
+      admission.installments = formattedInstallments;
+      await admission.save();
+
+      if (enquiry) {
+        enquiry.timeline.push({
+          type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
+          message: `Payment plan set to INSTALLMENT by ${user.name}`,
+          user: user.id,
+          userName: user.name,
+          timestamp: new Date(),
+          metadata: {
+            paymentType: PAYMENT_TYPES.INSTALLMENT,
+            installmentCount: installments.length,
+            installments: formattedInstallments.map(i => ({ amount: i.amount, dueDate: i.dueDate }))
+          }
+        });
+
+        formattedInstallments.forEach((inst, index) => {
+          enquiry.timeline.push({
+            type: TIMELINE_TYPES.INSTALLMENT_CREATED,
+            message: `Installment ${index + 1} of ₹${inst.amount} created by ${user.name}`,
+            user: user.id,
+            userName: user.name,
+            timestamp: new Date(),
+            metadata: { installmentIndex: index, amount: inst.amount, dueDate: inst.dueDate }
+          });
+        });
+
+        await enquiry.save();
+      }
     }
 
     return await this.getAdmissionById(admissionId);
