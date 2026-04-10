@@ -2,6 +2,12 @@ const { Payment, Admission, Enquiry } = require('../models');
 const AppError = require('../utils/AppError');
 
 class PaymentService {
+  _checkIfLocked(admission) {
+    if (admission.isLocked) {
+      throw new AppError('Cannot modify a locked admission', 403);
+    }
+  }
+
   async createPayment(paymentData, user) {
     const { admissionId, amount, nextInstallmentDate } = paymentData;
 
@@ -13,6 +19,8 @@ class PaymentService {
     if (!admission) {
       throw new AppError('Admission not found', 404);
     }
+
+    this._checkIfLocked(admission);
 
     if (amount > admission.pendingAmount) {
       throw new AppError(`Payment amount exceeds pending amount. Pending: ${admission.pendingAmount}`, 400);
@@ -85,6 +93,7 @@ class PaymentService {
     }
 
     const admission = await Admission.findById(payment.admissionId);
+    this._checkIfLocked(admission);
     const oldAmount = payment.amount;
     const newAmount = updateData.amount;
 
