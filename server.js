@@ -1,0 +1,35 @@
+require('dotenv').config();
+
+const connectDB = require('./config/database');
+const app = require('./app');
+
+const PORT = process.env.PORT || 5000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+const startServer = async () => {
+  try {
+    await connectDB();
+    
+    app.listen(PORT, () => {
+      console.log(`Server running in ${NODE_ENV} mode on port ${PORT}`);
+      console.log(`API available at http://localhost:${PORT}/api`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err.name, err.message);
+  console.error('Shutting down gracefully...');
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err.name, err.message);
+  console.error('Shutting down gracefully...');
+  process.exit(1);
+});
+
+startServer();
