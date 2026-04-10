@@ -43,6 +43,16 @@ class AdmissionController {
     );
     return successResponse(res, { admission }, 'Payment plan set successfully');
   });
+
+  createAdmissionFromEnquiry = catchAsync(async (req, res) => {
+    const { paymentType, installments, totalFees } = req.body;
+    const admission = await admissionService.createAdmissionFromEnquiry(
+      req.params.enquiryId,
+      { paymentType, installments, totalFees },
+      req.user
+    );
+    return successResponse(res, { admission }, 'Admission created successfully with payment plan', 201);
+  });
 }
 
 module.exports = new AdmissionController();

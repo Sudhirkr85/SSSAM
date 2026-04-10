@@ -14,7 +14,8 @@ const {
   updateTotalFeesValidation,
   admissionIdParamValidation,
   admissionEnquiryIdParamValidation,
-  setPaymentPlanValidation
+  setPaymentPlanValidation,
+  createAdmissionFromEnquiryValidation
 } = require('../validations');
 
 router.use(authMiddleware);
@@ -75,6 +76,14 @@ router.put(
   validateRequest,
   admissionAccessMiddleware,
   admissionController.setPaymentPlan
+);
+
+router.post(
+  '/from-enquiry/:enquiryId',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  createAdmissionFromEnquiryValidation,
+  validateRequest,
+  admissionController.createAdmissionFromEnquiry
 );
 
 module.exports = router;

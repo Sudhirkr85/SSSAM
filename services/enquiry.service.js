@@ -75,25 +75,29 @@ class EnquiryService {
       };
     }
 
-    const [enquiries, totalCount] = await Promise.all([
+    const [enquiries, totalCount, admissionEnquiryIds] = await Promise.all([
       Enquiry.find(filter)
         .populate('assignedTo', 'name email')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
         .lean(),
-      Enquiry.countDocuments(filter)
+      Enquiry.countDocuments(filter),
+      Admission.distinct('enquiryId')
     ]);
 
-    const enquiriesWithFlag = enquiries.map(enquiry => ({
+    const admissionEnquiryIdSet = new Set(admissionEnquiryIds.map(id => id.toString()));
+
+    const enquiriesWithFlags = enquiries.map(enquiry => ({
       ...enquiry,
-      isUnassigned: enquiry.assignedTo === null
+      isUnassigned: enquiry.assignedTo === null,
+      hasAdmission: admissionEnquiryIdSet.has(enquiry._id.toString())
     }));
 
     const totalPages = Math.ceil(totalCount / limit);
 
     return {
-      enquiries: enquiriesWithFlag,
+      enquiries: enquiriesWithFlags,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -141,13 +145,10 @@ class EnquiryService {
 
     await enquiry.save();
 
-    let admission = null;
     if (newStatus === ENQUIRY_STATUSES.CONVERTED) {
-      admission = await this._createAdmissionFromEnquiry(enquiry, user);
-      
       enquiry.timeline.push({
         type: 'converted',
-        message: `Enquiry converted to admission by ${user.name}`,
+        message: `Enquiry marked as Converted by ${user.name}`,
         user: user.id,
         userName: user.name,
         timestamp: new Date()
@@ -155,30 +156,18 @@ class EnquiryService {
       await enquiry.save();
     }
 
-    return {
+    const result = {
       enquiry: await this.getEnquiryById(enquiryId),
-      autoAssigned: isFirstAction,
-      admission
+      autoAssigned: isFirstAction
     };
-  }
 
-  async _createAdmissionFromEnquiry(enquiry, user) {
-    const existingAdmission = await Admission.findOne({ enquiryId: enquiry._id });
-    if (existingAdmission) {
-      return existingAdmission;
+    if (newStatus === ENQUIRY_STATUSES.CONVERTED) {
+      result.requiresPaymentSetup = true;
     }
 
-    const admission = await Admission.create({
-      enquiryId: enquiry._id,
-      admissionDate: new Date(),
-      totalFees: 0,
-      paidAmount: 0,
-      pendingAmount: 0,
-      isLocked: false
-    });
-
-    return admission;
+    return result;
   }
+
 
   async addNote(enquiryId, noteText, user) {
     const enquiry = await Enquiry.findById(enquiryId);

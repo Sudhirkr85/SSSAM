@@ -221,6 +221,108 @@ class AdmissionService {
     return await this.getAdmissionById(admissionId);
   }
 
+  async createAdmissionFromEnquiry(enquiryId, paymentData, user) {
+    const { paymentType, installments = [], totalFees } = paymentData;
+
+    const enquiry = await Enquiry.findById(enquiryId);
+    if (!enquiry) {
+      throw new AppError('Enquiry not found', 404);
+    }
+
+    if (enquiry.status !== ENQUIRY_STATUSES.CONVERTED) {
+      throw new AppError('Enquiry must be in Converted status to create admission', 400);
+    }
+
+    const existingAdmission = await Admission.findOne({ enquiryId });
+    if (existingAdmission) {
+      throw new AppError('Admission already exists for this enquiry', 400);
+    }
+
+    if (!Object.values(PAYMENT_TYPES).includes(paymentType)) {
+      throw new AppError(`Invalid payment type. Must be ${PAYMENT_TYPES.ONE_TIME} or ${PAYMENT_TYPES.INSTALLMENT}`, 400);
+    }
+
+    if (totalFees === undefined || totalFees === null || totalFees < 0) {
+      throw new AppError('Total fees is required and must be a positive number', 400);
+    }
+
+    let formattedInstallments = [];
+
+    if (paymentType === PAYMENT_TYPES.ONE_TIME) {
+      if (installments.length > 0) {
+        throw new AppError('ONE_TIME payment type should not have installments', 400);
+      }
+    } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
+      if (!installments || installments.length === 0) {
+        throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
+      }
+
+      const totalInstallmentAmount = installments.reduce((sum, inst) => sum + inst.amount, 0);
+      if (totalInstallmentAmount !== totalFees) {
+        throw new AppError(
+          `Installments total (₹${totalInstallmentAmount}) must equal total fees (₹${totalFees})`,
+          400
+        );
+      }
+
+      const now = new Date();
+      for (const inst of installments) {
+        if (new Date(inst.dueDate) < now) {
+          throw new AppError('Installment due dates must be in the future', 400);
+        }
+      }
+
+      formattedInstallments = installments.map(inst => ({
+        amount: inst.amount,
+        dueDate: new Date(inst.dueDate),
+        paidAmount: 0,
+        status: 'Pending'
+      }));
+    }
+
+    const admission = await Admission.create({
+      enquiryId,
+      admissionDate: new Date(),
+      totalFees,
+      paidAmount: 0,
+      pendingAmount: totalFees,
+      paymentType,
+      installments: formattedInstallments,
+      isLocked: false
+    });
+
+    enquiry.timeline.push({
+      type: TIMELINE_TYPES.CONVERTED,
+      message: `Admission created with payment plan by ${user.name}`,
+      user: user.id,
+      userName: user.name,
+      timestamp: new Date(),
+      metadata: {
+        admissionId: admission._id,
+        paymentType,
+        totalFees,
+        installmentCount: formattedInstallments.length
+      }
+    });
+
+    if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
+      formattedInstallments.forEach((inst, index) => {
+        enquiry.timeline.push({
+          type: TIMELINE_TYPES.INSTALLMENT_CREATED,
+          message: `Installment ${index + 1} of ₹${inst.amount} created by ${user.name}`,
+          user: user.id,
+          userName: user.name,
+          timestamp: new Date(),
+          metadata: { installmentIndex: index, amount: inst.amount, dueDate: inst.dueDate }
+        });
+      });
+    }
+
+    await enquiry.save();
+
+    return await this.getAdmissionById(admission._id);
+  }
+
   async listAdmissions(queryParams) {
     const { page = 1, limit = 10, isLocked } = queryParams;
     const skip = (page - 1) * limit;
