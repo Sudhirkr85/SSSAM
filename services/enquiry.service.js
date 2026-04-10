@@ -109,8 +109,11 @@ class EnquiryService {
     };
   }
 
-  _checkIfConverted(enquiry) {
+  _checkIfConverted(enquiry, newStatus = null) {
     if (enquiry.status === ENQUIRY_STATUSES.CONVERTED) {
+      if (newStatus === ENQUIRY_STATUSES.CONVERTED) {
+        return;
+      }
       throw new AppError('Cannot modify a converted enquiry', 400);
     }
   }
@@ -122,7 +125,15 @@ class EnquiryService {
       throw new AppError('Enquiry not found', 404);
     }
 
-    this._checkIfConverted(enquiry);
+    this._checkIfConverted(enquiry, newStatus);
+
+    if (enquiry.status === newStatus) {
+      return {
+        enquiry: await this.getEnquiryById(enquiryId),
+        autoAssigned: false,
+        ...(newStatus === ENQUIRY_STATUSES.CONVERTED && { requiresPaymentSetup: true })
+      };
+    }
 
     const wasUnassigned = enquiry.assignedTo === null;
     const isFirstAction = wasUnassigned && user.role === ROLES.COUNSELOR;
