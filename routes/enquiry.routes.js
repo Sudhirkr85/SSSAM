@@ -44,7 +44,7 @@ router.get(
   enquiryController.getEnquiry
 );
 
-router.put(
+router.patch(
   '/:id/status',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   enquiryIdParamValidation,
