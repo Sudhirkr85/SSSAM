@@ -215,28 +215,48 @@ class EnquiryService {
   }
 
   async bulkUpload(dataArray, user) {
+    console.log('[DEBUG] enquiryService.bulkUpload called with', dataArray.length, 'rows');
+    console.log('[DEBUG] User:', user?.id, user?.name);
+
     const created = [];
     const errors = [];
 
     for (let i = 0; i < dataArray.length; i++) {
       try {
         const data = dataArray[i];
+        console.log(`[DEBUG] Processing row ${i + 1}:`, { name: data.name, mobile: data.mobile, course: data.courseInterested });
 
         if (!data.name || !data.mobile || !data.courseInterested) {
+          console.log(`[DEBUG] Row ${i + 1} skipped: Missing required fields`);
           errors.push({ row: i + 1, error: 'Missing required fields (name, mobile, courseInterested)' });
           continue;
         }
 
         const mobile = String(data.mobile).replace(/\D/g, '');
         if (mobile.length !== 10) {
+          console.log(`[DEBUG] Row ${i + 1} skipped: Invalid mobile - ${mobile}`);
           errors.push({ row: i + 1, error: 'Invalid mobile number (must be 10 digits)' });
           continue;
         }
 
+        // Clean email - extract from markdown links like [email](mailto:email) and remove empty strings
+        let email = data.email || null;
+        if (email) {
+          // Extract email from markdown link format: [email](mailto:email) or just email
+          const match = email.match(/\[?([^\]]+)\]?\(mailto:([^)]+)\)/);
+          if (match) {
+            email = match[2]; // Use the actual email from mailto:
+          } else {
+            email = email.replace(/\[|\]/g, '').trim();
+          }
+          if (!email || email === '') email = null;
+        }
+
+        console.log(`[DEBUG] Row ${i + 1} - Creating enquiry in DB...`);
         const enquiry = await Enquiry.create({
           name: data.name,
           mobile,
-          email: data.email || null,
+          email,
           courseInterested: data.courseInterested,
           status: data.status || ENQUIRY_STATUSES.NEW,
           assignedTo: null,
@@ -250,13 +270,16 @@ class EnquiryService {
             timestamp: new Date()
           }]
         });
+        console.log(`[DEBUG] Row ${i + 1} - Created enquiry ID:`, enquiry._id.toString());
 
         created.push(enquiry);
       } catch (err) {
+        console.log(`[DEBUG] Row ${i + 1} error:`, err.message);
         errors.push({ row: i + 1, error: err.message });
       }
     }
 
+    console.log('[DEBUG] bulkUpload complete - Created:', created.length, 'Errors:', errors.length);
     return { created: created.length, errors, enquiries: created };
   }
 
