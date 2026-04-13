@@ -4,6 +4,7 @@ const admissionRoutes = require('./admission.routes');
 const paymentRoutes = require('./payment.routes');
 const reportRoutes = require('./report.routes');
 const bulkUploadRoutes = require('./bulkUpload.routes');
+const dashboardRoutes = require('./dashboard.routes');
 
 module.exports = {
   authRoutes,
@@ -11,5 +12,6 @@ module.exports = {
   admissionRoutes,
   paymentRoutes,
   reportRoutes,
-  bulkUploadRoutes
+  bulkUploadRoutes,
+  dashboardRoutes
 };

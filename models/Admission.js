@@ -1,5 +1,23 @@
 const mongoose = require('mongoose');
 
+const paymentSchema = new mongoose.Schema({
+  amount: {
+    type: Number,
+    required: [true, 'Payment amount is required'],
+    min: [0, 'Payment amount cannot be negative']
+  },
+  date: {
+    type: Date,
+    required: [true, 'Payment date is required'],
+    default: Date.now
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Notes cannot exceed 500 characters']
+  }
+}, { _id: true });
+
 const installmentSchema = new mongoose.Schema({
   amount: {
     type: Number,
@@ -29,10 +47,17 @@ const admissionSchema = new mongoose.Schema({
     required: [true, 'Enquiry ID is required'],
     unique: true
   },
-  admissionDate: {
-    type: Date,
-    required: [true, 'Admission date is required'],
-    default: Date.now
+  studentName: {
+    type: String,
+    required: [true, 'Student name is required'],
+    trim: true,
+    maxlength: [100, 'Name cannot exceed 100 characters']
+  },
+  course: {
+    type: String,
+    required: [true, 'Course is required'],
+    trim: true,
+    maxlength: [100, 'Course cannot exceed 100 characters']
   },
   totalFees: {
     type: Number,
@@ -51,14 +76,18 @@ const admissionSchema = new mongoose.Schema({
     },
     min: [0, 'Pending amount cannot be negative']
   },
-  paymentType: {
-    type: String,
-    enum: ['ONE_TIME', 'INSTALLMENT'],
-    default: null
-  },
   installments: {
     type: [installmentSchema],
     default: []
+  },
+  payments: {
+    type: [paymentSchema],
+    default: []
+  },
+  counselorId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
   isLocked: {
     type: Boolean,
@@ -72,5 +101,9 @@ admissionSchema.pre('save', function(next) {
   this.pendingAmount = this.totalFees - this.paidAmount;
   next();
 });
+
+admissionSchema.index({ enquiryId: 1 });
+admissionSchema.index({ counselorId: 1 });
+admissionSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Admission', admissionSchema);

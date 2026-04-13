@@ -5,7 +5,7 @@ const timelineSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['created', 'status_change', 'note', 'followup', 'converted', 'payment', 'locked', 'fees_updated', 'payment_plan_set', 'installment_created', 'installment_paid', 'full_payment_completed']
+    enum: ['created', 'status_change', 'note', 'followup', 'converted', 'payment', 'locked', 'fees_updated', 'payment_plan_set', 'installment_created', 'installment_paid', 'full_payment_completed', 'assigned']
   },
   message: {
     type: String,
@@ -37,12 +37,12 @@ const noteSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'Note cannot exceed 1000 characters']
   },
-  createdBy: {
+  addedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  timestamp: {
+  createdAt: {
     type: Date,
     default: Date.now
   }
@@ -55,15 +55,6 @@ const enquirySchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Name cannot exceed 100 characters']
   },
-  mobile: {
-    type: String,
-    required: [true, 'Mobile number is required'],
-    trim: true,
-    match: [
-      /^[0-9]{10}$/,
-      'Please provide a valid 10-digit mobile number'
-    ]
-  },
   email: {
     type: String,
     trim: true,
@@ -74,39 +65,42 @@ const enquirySchema = new mongoose.Schema({
     ],
     default: null
   },
-  course: {
+  mobile: {
     type: String,
-    required: [true, 'Course is required'],
+    required: [true, 'Mobile number is required'],
+    trim: true,
+    match: [
+      /^[0-9]{10}$/,
+      'Please provide a valid 10-digit mobile number'
+    ]
+  },
+  courseInterested: {
+    type: String,
+    required: [true, 'Course interested is required'],
     trim: true,
     maxlength: [100, 'Course cannot exceed 100 characters']
-  },
-  source: {
-    type: String,
-    required: [true, 'Source is required'],
-    trim: true,
-    maxlength: [50, 'Source cannot exceed 50 characters']
   },
   status: {
     type: String,
     enum: STATUS_LIST,
-    default: 'New'
-  },
-  notes: {
-    type: String,
-    trim: true,
-    maxlength: [1000, 'Notes cannot exceed 1000 characters'],
-    default: null
-  },
-  followUpDate: {
-    type: Date,
-    default: null
+    default: 'NEW'
   },
   assignedTo: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     default: null
   },
+  followUpDate: {
+    type: Date,
+    default: null
+  },
+  notes: [noteSchema],
   timeline: [timelineSchema],
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -129,6 +123,9 @@ enquirySchema.index({ status: 1 });
 enquirySchema.index({ assignedTo: 1 });
 enquirySchema.index({ followUpDate: 1 });
 enquirySchema.index({ createdAt: -1 });
+enquirySchema.index({ createdBy: 1 });
+enquirySchema.index({ status: 1, assignedTo: 1 });
+enquirySchema.index({ followUpDate: 1, status: 1 });
 
 enquirySchema.virtual('isUnassigned').get(function() {
   return this.assignedTo === null;

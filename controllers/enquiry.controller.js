@@ -35,61 +35,50 @@ class EnquiryController {
     );
   });
 
-  updateStatus = catchAsync(async (req, res) => {
-    const { status } = req.body;
-    const result = await enquiryService.updateStatus(
-      req.params.id,
-      status,
-      req.user
-    );
+  // GET /enquiries/all - All enquiries (read-only for counselor)
+  listAllEnquiries = catchAsync(async (req, res) => {
+    const result = await enquiryService.listAllEnquiries(req.query, req.user);
     
-    const message = result.autoAssigned
-      ? 'Status updated and enquiry auto-assigned to you'
-      : 'Status updated successfully';
-    
-    return successResponse(
+    return paginatedResponse(
       res,
-      { enquiry: result.enquiry, autoAssigned: result.autoAssigned },
-      message
+      result.enquiries,
+      result.pagination,
+      'All enquiries retrieved successfully'
     );
   });
 
-  addNote = catchAsync(async (req, res) => {
-    const { text } = req.body;
-    const result = await enquiryService.addNote(
+  // PUT /enquiries/:id/update - Combined API for status + note + followUpDate
+  updateEnquiry = catchAsync(async (req, res) => {
+    const { status, note, followUpDate } = req.body;
+    
+    const result = await enquiryService.updateEnquiry(
       req.params.id,
-      text,
+      { status, note, followUpDate },
       req.user
     );
     
-    const message = result.autoAssigned
-      ? 'Note added and enquiry auto-assigned to you'
-      : 'Note added successfully';
+    let message = 'Enquiry updated successfully';
+    if (result.autoAssigned && result.requiresPaymentSetup) {
+      message = 'Enquiry updated, auto-assigned to you, and requires payment setup';
+    } else if (result.autoAssigned) {
+      message = 'Enquiry updated and auto-assigned to you';
+    } else if (result.requiresPaymentSetup) {
+      message = 'Enquiry converted successfully. Please set up payment details.';
+    }
     
     return successResponse(
       res,
-      { enquiry: result.enquiry, autoAssigned: result.autoAssigned },
+      { 
+        enquiry: result.enquiry, 
+        autoAssigned: result.autoAssigned,
+        requiresPaymentSetup: result.requiresPaymentSetup 
+      },
       message
-    );
-  });
-
-  setFollowUp = catchAsync(async (req, res) => {
-    const { followUpDate } = req.body;
-    const enquiry = await enquiryService.setFollowUp(
-      req.params.id,
-      followUpDate,
-      req.user
-    );
-    
-    return successResponse(
-      res,
-      { enquiry },
-      'Follow-up date set successfully'
     );
   });
 
   deleteEnquiry = catchAsync(async (req, res) => {
-    await enquiryService.deleteEnquiry(req.params.id);
+    await enquiryService.deleteEnquiry(req.params.id, req.user);
     
     return successResponse(
       res,

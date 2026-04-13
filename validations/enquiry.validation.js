@@ -1,5 +1,5 @@
 const { body, query, param } = require('express-validator');
-const { STATUS_LIST, PAGINATION } = require('../config/constants');
+const { STATUS_LIST, PAGINATION, ENQUIRY_STATUSES } = require('../config/constants');
 
 const createEnquiryValidation = [
   body('name')
@@ -9,33 +9,26 @@ const createEnquiryValidation = [
     .isLength({ max: 100 })
     .withMessage('Name cannot exceed 100 characters'),
   
-  body('mobile')
-    .trim()
-    .notEmpty()
-    .withMessage('Mobile number is required')
-    .matches(/^[0-9]{10}$/)
-    .withMessage('Please provide a valid 10-digit mobile number'),
-
   body('email')
     .optional()
     .trim()
     .isEmail()
     .withMessage('Please provide a valid email address')
     .normalizeEmail(),
-  
-  body('course')
+
+  body('mobile')
     .trim()
     .notEmpty()
-    .withMessage('Course is required')
+    .withMessage('Mobile number is required')
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
+  
+  body('courseInterested')
+    .trim()
+    .notEmpty()
+    .withMessage('Course interested is required')
     .isLength({ max: 100 })
-    .withMessage('Course cannot exceed 100 characters'),
-  
-  body('source')
-    .trim()
-    .notEmpty()
-    .withMessage('Source is required')
-    .isLength({ max: 50 })
-    .withMessage('Source cannot exceed 50 characters'),
+    .withMessage('Course interested cannot exceed 100 characters'),
   
   body('status')
     .optional()
@@ -49,30 +42,34 @@ const createEnquiryValidation = [
     .toDate()
 ];
 
-const updateStatusValidation = [
+const updateEnquiryValidation = [
   body('status')
-    .notEmpty()
-    .withMessage('Status is required')
+    .optional()
     .isIn(STATUS_LIST)
-    .withMessage(`Status must be one of: ${STATUS_LIST.join(', ')}`)
-];
-
-const addNoteValidation = [
-  body('text')
+    .withMessage(`Status must be one of: ${STATUS_LIST.join(', ')}`),
+  
+  body('note')
+    .optional()
     .trim()
     .notEmpty()
-    .withMessage('Note text is required')
+    .withMessage('Note cannot be empty if provided')
     .isLength({ max: 1000 })
-    .withMessage('Note cannot exceed 1000 characters')
-];
-
-const setFollowUpValidation = [
+    .withMessage('Note cannot exceed 1000 characters'),
+  
   body('followUpDate')
-    .notEmpty()
-    .withMessage('Follow-up date is required')
+    .optional({ nullable: true })
     .isISO8601()
     .withMessage('Please provide a valid date')
-    .toDate()
+    .toDate(),
+  
+  // Custom validation: if status is FOLLOW_UP, followUpDate is required
+  body()
+    .custom((value, { req }) => {
+      if (req.body.status === ENQUIRY_STATUSES.FOLLOW_UP && !req.body.followUpDate) {
+        throw new Error('Follow-up date is required when status is FOLLOW_UP');
+      }
+      return true;
+    })
 ];
 
 const listEnquiriesValidation = [
@@ -103,10 +100,6 @@ const listEnquiriesValidation = [
     .trim()
     .custom((value) => {
       if (!value || value === '') return true;
-      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-      if (emailRegex.test(value)) {
-        return true;
-      }
       if (value.length > 100) {
         throw new Error('Search term cannot exceed 100 characters');
       }
@@ -122,7 +115,18 @@ const listEnquiriesValidation = [
     .optional()
     .isBoolean()
     .withMessage('followUpToday must be a boolean')
-    .toBoolean()
+    .toBoolean(),
+
+  query('followUpOverdue')
+    .optional()
+    .isBoolean()
+    .withMessage('followUpOverdue must be a boolean')
+    .toBoolean(),
+
+  query('view')
+    .optional()
+    .isIn(['default', 'all'])
+    .withMessage('view must be default or all')
 ];
 
 const enquiryIdParamValidation = [
@@ -133,9 +137,7 @@ const enquiryIdParamValidation = [
 
 module.exports = {
   createEnquiryValidation,
-  updateStatusValidation,
-  addNoteValidation,
-  setFollowUpValidation,
+  updateEnquiryValidation,
   listEnquiriesValidation,
   enquiryIdParamValidation
 };

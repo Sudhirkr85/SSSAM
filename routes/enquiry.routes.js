@@ -6,20 +6,21 @@ const {
   authMiddleware,
   roleMiddleware,
   enquiryAccessMiddleware,
+  enquiryOwnershipMiddleware,
+  listAccessMiddleware,
   validateRequest
 } = require('../middleware');
 const { ROLES } = require('../config/constants');
 const {
   createEnquiryValidation,
-  updateStatusValidation,
-  addNoteValidation,
-  setFollowUpValidation,
+  updateEnquiryValidation,
   listEnquiriesValidation,
   enquiryIdParamValidation
 } = require('../validations');
 
 router.use(authMiddleware);
 
+// POST /enquiries - Create new enquiry
 router.post(
   '/',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
@@ -28,52 +29,47 @@ router.post(
   enquiryController.createEnquiry
 );
 
+// GET /enquiries - List enquiries (counselor: assigned + unassigned only)
 router.get(
   '/',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  listAccessMiddleware,
   listEnquiriesValidation,
   validateRequest,
   enquiryController.listEnquiries
 );
 
+// GET /enquiries/all - List ALL enquiries (read-only for counselor)
+router.get(
+  '/all',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  listEnquiriesValidation,
+  validateRequest,
+  enquiryController.listAllEnquiries
+);
+
+// GET /enquiries/:id - Get single enquiry
 router.get(
   '/:id',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   enquiryIdParamValidation,
   validateRequest,
+  enquiryAccessMiddleware,
   enquiryController.getEnquiry
 );
 
-router.patch(
-  '/:id/status',
+// PUT /enquiries/:id/update - Combined API: update status + note + followUpDate
+router.put(
+  '/:id/update',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   enquiryIdParamValidation,
-  updateStatusValidation,
+  updateEnquiryValidation,
   validateRequest,
-  enquiryAccessMiddleware,
-  enquiryController.updateStatus
+  enquiryOwnershipMiddleware,
+  enquiryController.updateEnquiry
 );
 
-router.post(
-  '/:id/notes',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  enquiryIdParamValidation,
-  addNoteValidation,
-  validateRequest,
-  enquiryAccessMiddleware,
-  enquiryController.addNote
-);
-
-router.patch(
-  '/:id/followup',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  enquiryIdParamValidation,
-  setFollowUpValidation,
-  validateRequest,
-  enquiryAccessMiddleware,
-  enquiryController.setFollowUp
-);
-
+// DELETE /enquiries/:id - Delete enquiry (admin only)
 router.delete(
   '/:id',
   roleMiddleware(ROLES.ADMIN),

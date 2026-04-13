@@ -1,8 +1,35 @@
+const mongoose = require('mongoose');
 const { Admission, Enquiry, Payment } = require('../models');
 const AppError = require('../utils/AppError');
 const { ENQUIRY_STATUSES, PAYMENT_TYPES, TIMELINE_TYPES } = require('../config/constants');
 
 class AdmissionService {
+  // Helper method to execute operations within a transaction
+  async withTransaction(operations) {
+    const session = await mongoose.startSession();
+    let result;
+    
+    try {
+      // Try to use transactions
+      result = await session.withTransaction(async () => {
+        return await operations(session);
+      });
+    } catch (error) {
+      // If transactions fail (no replica set), execute without transaction
+      if (error.message && error.message.includes('transaction')) {
+        session.endSession();
+        result = await operations();
+      } else {
+        throw error;
+      }
+    } finally {
+      if (session) {
+        session.endSession();
+      }
+    }
+    
+    return result;
+  }
   async createAdmission(admissionData, user) {
     const { enquiryId, totalFees = 0, admissionDate = new Date() } = admissionData;
 
@@ -235,9 +262,73 @@ class AdmissionService {
 
     const existingAdmission = await Admission.findOne({ enquiryId });
     if (existingAdmission) {
+      // If admission exists but not locked and payment data is provided, update it
+      if (!existingAdmission.isLocked && existingAdmission.paidAmount === 0) {
+        let formattedInstallments = [];
+
+        if (paymentType === PAYMENT_TYPES.ONE_TIME) {
+          if (installments.length > 0) {
+            throw new AppError('ONE_TIME payment type should not have installments', 400);
+          }
+        } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
+          if (!installments || installments.length === 0) {
+            throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
+          }
+
+          const totalInstallmentAmount = installments.reduce((sum, inst) => sum + inst.amount, 0);
+          if (totalInstallmentAmount !== totalFees) {
+            throw new AppError(
+              `Installments total (₹${totalInstallmentAmount}) must equal total fees (₹${totalFees})`,
+              400
+            );
+          }
+
+          const now = new Date();
+          for (const inst of installments) {
+            if (new Date(inst.dueDate) < now) {
+              throw new AppError('Installment due dates must be in the future', 400);
+            }
+          }
+
+          formattedInstallments = installments.map(inst => ({
+            amount: inst.amount,
+            dueDate: new Date(inst.dueDate),
+            paidAmount: 0,
+            status: 'Pending'
+          }));
+        }
+
+        existingAdmission.totalFees = totalFees;
+        existingAdmission.pendingAmount = totalFees;
+        existingAdmission.paymentType = paymentType;
+        existingAdmission.installments = formattedInstallments;
+        await existingAdmission.save();
+
+        enquiry.timeline.push({
+          type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
+          message: `Payment plan updated by ${user.name}`,
+          user: user.id,
+          userName: user.name,
+          timestamp: new Date(),
+          metadata: {
+            paymentType,
+            totalFees,
+            installmentCount: formattedInstallments.length
+          }
+        });
+        await enquiry.save();
+
+        return {
+          admission: await this.getAdmissionById(existingAdmission._id),
+          alreadyExists: true,
+          updated: true
+        };
+      }
+
       return {
         admission: await this.getAdmissionById(existingAdmission._id),
-        alreadyExists: true
+        alreadyExists: true,
+        updated: false
       };
     }
 

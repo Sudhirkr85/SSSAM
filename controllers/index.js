@@ -4,6 +4,7 @@ const admissionController = require('./admission.controller');
 const paymentController = require('./payment.controller');
 const reportController = require('./report.controller');
 const bulkUploadController = require('./bulkUpload.controller');
+const dashboardController = require('./dashboard.controller');
 
 module.exports = {
   authController,
@@ -11,5 +12,6 @@ module.exports = {
   admissionController,
   paymentController,
   reportController,
-  bulkUploadController
+  bulkUploadController,
+  dashboardController
 };

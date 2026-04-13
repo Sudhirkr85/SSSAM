@@ -1,9 +1,7 @@
 const { registerValidation, loginValidation } = require('./auth.validation');
 const {
   createEnquiryValidation,
-  updateStatusValidation,
-  addNoteValidation,
-  setFollowUpValidation,
+  updateEnquiryValidation,
   listEnquiriesValidation,
   enquiryIdParamValidation
 } = require('./enquiry.validation');
@@ -27,9 +25,7 @@ module.exports = {
   registerValidation,
   loginValidation,
   createEnquiryValidation,
-  updateStatusValidation,
-  addNoteValidation,
-  setFollowUpValidation,
+  updateEnquiryValidation,
   listEnquiriesValidation,
   enquiryIdParamValidation,
   createAdmissionValidation,
