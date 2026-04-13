@@ -102,7 +102,6 @@ admissionSchema.pre('save', function(next) {
   next();
 });
 
-admissionSchema.index({ enquiryId: 1 });
 admissionSchema.index({ counselorId: 1 });
 admissionSchema.index({ createdAt: -1 });
 
