@@ -1,13 +1,13 @@
 const { Enquiry } = require('../models');
 const { ROLES, ENQUIRY_STATUSES } = require('../config/constants');
+const { canAccessEnquiry } = require('../utils/accessControl');
 const { errorResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
 
 /**
- * Middleware to check if user has access to a specific enquiry
+ * Middleware to check if user can VIEW a specific enquiry
  * - Admin: full access
  * - Counselor: access only if assignedTo === user.id OR assignedTo === null
- * - Cannot access other counselors' assigned enquiries
  */
 const enquiryAccessMiddleware = catchAsync(async (req, res, next) => {
   const enquiryId = req.params.id;
@@ -23,23 +23,14 @@ const enquiryAccessMiddleware = catchAsync(async (req, res, next) => {
   }
 
   const enquiry = await Enquiry.findById(enquiryId);
-
   if (!enquiry) {
     return errorResponse(res, 'Enquiry not found', 404);
   }
 
-  // Counselor can access if:
-  // 1. Enquiry is unassigned (assignedTo === null)
-  // 2. Enquiry is assigned to them
-  const isUnassigned = enquiry.assignedTo === null;
-  const isAssignedToUser = enquiry.assignedTo && 
-    enquiry.assignedTo.toString() === user.id.toString();
-
-  if (isUnassigned || isAssignedToUser) {
+  if (canAccessEnquiry(user, enquiry)) {
     return next();
   }
 
-  // Enquiry is assigned to another counselor
   return errorResponse(
     res,
     'Access denied. This enquiry is assigned to another counselor.',
@@ -48,9 +39,10 @@ const enquiryAccessMiddleware = catchAsync(async (req, res, next) => {
 });
 
 /**
- * Middleware to check if user can modify a specific enquiry
- * - Admin: full access (except CONVERTED enquiries can only be edited by admin)
+ * Middleware to check if user can MODIFY a specific enquiry
+ * - Admin: full access
  * - Counselor: can only modify if assigned to them AND not CONVERTED
+ * Note: Auto-assignment for unassigned enquiries happens in the service layer
  */
 const enquiryOwnershipMiddleware = catchAsync(async (req, res, next) => {
   const enquiryId = req.params.id;
@@ -61,7 +53,6 @@ const enquiryOwnershipMiddleware = catchAsync(async (req, res, next) => {
   }
 
   const enquiry = await Enquiry.findById(enquiryId);
-
   if (!enquiry) {
     return errorResponse(res, 'Enquiry not found', 404);
   }
@@ -80,16 +71,11 @@ const enquiryOwnershipMiddleware = catchAsync(async (req, res, next) => {
     );
   }
 
-  // Counselor can only edit if assigned to them
-  const isAssignedToUser = enquiry.assignedTo && 
-    enquiry.assignedTo.toString() === user.id.toString();
+  // Counselor can only edit if assigned OR unassigned (will auto-assign)
+  const isAssignedToUser = enquiry.assignedTo?.toString() === user.id?.toString();
+  const isUnassigned = enquiry.assignedTo === null;
 
-  if (isAssignedToUser) {
-    return next();
-  }
-
-  // Counselor trying to edit unassigned enquiry - will be auto-assigned in service
-  if (enquiry.assignedTo === null) {
+  if (isAssignedToUser || isUnassigned) {
     return next();
   }
 
@@ -101,25 +87,13 @@ const enquiryOwnershipMiddleware = catchAsync(async (req, res, next) => {
 });
 
 /**
- * Middleware for list endpoints to filter by counselor access
- * Automatically applies filters for counselors
+ * Middleware for list endpoints - just validates auth
+ * Actual filtering happens in the service layer
  */
 const listAccessMiddleware = catchAsync(async (req, res, next) => {
-  const user = req.user;
-
-  if (!user) {
+  if (!req.user) {
     return errorResponse(res, 'Authentication required', 401);
   }
-
-  // Admin sees all - no filter needed
-  if (user.role === ROLES.ADMIN) {
-    return next();
-  }
-
-  // For counselors, we add a filter to the query
-  // They can see: assigned to them OR unassigned
-  // This is handled in the service layer by checking req.user
-
   next();
 });
 
