@@ -46,4 +46,11 @@ router.get(
   dashboardController.getCounselorDashboard
 );
 
+// GET /dashboard/today-calls - Today's calls list
+router.get(
+  '/today-calls',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  dashboardController.getTodayCalls
+);
+
 module.exports = router;

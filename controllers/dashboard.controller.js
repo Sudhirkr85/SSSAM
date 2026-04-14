@@ -54,11 +54,22 @@ class DashboardController {
   // GET /dashboard/counselor - Counselor-specific dashboard
   getCounselorDashboard = catchAsync(async (req, res) => {
     const dashboard = await dashboardService.getCounselorDashboard(req.user);
-    
+
     return successResponse(
       res,
       dashboard,
       'Counselor dashboard retrieved successfully'
+    );
+  });
+
+  // GET /dashboard/today-calls - Today's calls list
+  getTodayCalls = catchAsync(async (req, res) => {
+    const todayCalls = await dashboardService.getTodayCalls(req.user);
+
+    return successResponse(
+      res,
+      todayCalls,
+      'Today calls retrieved successfully'
     );
   });
 }

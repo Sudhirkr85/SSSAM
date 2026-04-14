@@ -1,4 +1,4 @@
-const { Enquiry, Admission } = require('../models');
+const { Enquiry, Admission, Payment } = require('../models');
 const { ENQUIRY_STATUSES } = require('../config/constants');
 
 class DashboardService {
@@ -190,18 +190,117 @@ class DashboardService {
     };
   }
 
+  // Get admission stats for dashboard cards
+  async getAdmissionStats() {
+    const [totalAdmissions, pendingPayment, completed] = await Promise.all([
+      Admission.countDocuments(),
+      Admission.countDocuments({ pendingAmount: { $gt: 0 } }),
+      Admission.countDocuments({ pendingAmount: 0 })
+    ]);
+
+    return {
+      totalAdmissions,
+      pendingPayment,
+      completed
+    };
+  }
+
+  // Get payment stats with mode breakdown
+  async getPaymentStats() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const [totalPayments, paymentsByMode] = await Promise.all([
+      Payment.countDocuments(),
+      Payment.aggregate([
+        {
+          $group: {
+            _id: '$paymentMode',
+            count: { $sum: 1 },
+            amount: { $sum: '$amount' }
+          }
+        }
+      ])
+    ]);
+
+    // Format payment mode stats
+    const modeStats = {
+      CASH: { count: 0, amount: 0 },
+      UPI: { count: 0, amount: 0 },
+      CARD: { count: 0, amount: 0 },
+      ONLINE: { count: 0, amount: 0 },
+      CHEQUE: { count: 0, amount: 0 }
+    };
+
+    paymentsByMode.forEach(mode => {
+      if (modeStats[mode._id]) {
+        modeStats[mode._id] = { count: mode.count, amount: mode.amount };
+      }
+    });
+
+    return {
+      totalPayments,
+      ...modeStats
+    };
+  }
+
+  // Get today's calls (enquiries with follow-up today)
+  async getTodayCalls(user) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const query = {
+      followUpDate: { $gte: today, $lt: tomorrow },
+      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
+    };
+
+    // If counselor, only show assigned enquiries
+    if (user.role === 'counselor') {
+      query.assignedTo = user.id;
+    }
+
+    const [calls, totalCalls, pendingCalls, completedCalls] = await Promise.all([
+      Enquiry.find(query)
+        .populate('assignedTo', 'name')
+        .select('name mobile courseInterested status followUpDate followUpNotes assignedTo')
+        .sort({ followUpDate: 1 }),
+      Enquiry.countDocuments(query),
+      Enquiry.countDocuments({ ...query, status: { $nin: [ENQUIRY_STATUSES.CONVERTED, 'CONTACTED', 'NOT_INTERESTED'] } }),
+      Enquiry.countDocuments({ ...query, status: { $in: ['CONTACTED', 'FOLLOW_UP'] } })
+    ]);
+
+    return {
+      summary: {
+        totalCalls,
+        pending: pendingCalls,
+        completed: completedCalls
+      },
+      calls
+    };
+  }
+
   // Get full dashboard
   async getDashboard(user) {
-    const [revenue, enquiries, additional] = await Promise.all([
+    const [revenue, enquiries, additional, admissions, payments, todayCalls] = await Promise.all([
       this.getRevenueStats(),
       this.getEnquiryStats(),
-      this.getAdditionalStats()
+      this.getAdditionalStats(),
+      this.getAdmissionStats(),
+      this.getPaymentStats(),
+      this.getTodayCalls(user)
     ]);
-    
+
     return {
       revenue,
       enquiries,
-      ...additional
+      ...additional,
+      admissions,
+      payments,
+      todayCalls
     };
   }
 }
