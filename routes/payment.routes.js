@@ -52,4 +52,10 @@ router.put(
   paymentController.updatePayment
 );
 
+router.post(
+  '/check-overdue',
+  roleMiddleware(ROLES.ADMIN),
+  paymentController.checkOverdueInstallments
+);
+
 module.exports = router;

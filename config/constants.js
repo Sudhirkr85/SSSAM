@@ -43,6 +43,7 @@ const TIMELINE_TYPES = {
   FOLLOWUP: 'followup',
   CONVERTED: 'converted',
   PAYMENT: 'payment',
+  PAYMENT_UPDATED: 'payment_updated',
   LOCKED: 'locked',
   FEES_UPDATED: 'fees_updated',
   PAYMENT_PLAN_SET: 'payment_plan_set',

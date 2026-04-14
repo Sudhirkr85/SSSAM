@@ -166,17 +166,24 @@ class EnquiryService {
     const previousStatus = enquiry.status;
     let requiresPaymentSetup = false;
 
+    // Build update operations
+    const updateOps = { $set: { updatedAt: new Date() } };
+    const pushOps = {};
+
     // Update status
     if (status && status !== enquiry.status) {
-      enquiry.status = status;
-      enquiry.timeline.push({
-        type: 'status_change',
-        message: `Status changed from "${previousStatus}" to "${status}"`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { previousStatus, newStatus: status }
-      });
+      updateOps.$set.status = status;
+      pushOps.timeline = {
+        $each: [{
+          type: 'status_change',
+          message: `Status changed from "${previousStatus}" to "${status}"`,
+          user: user.id,
+          userName: user.name,
+          timestamp: new Date(),
+          metadata: { previousStatus, newStatus: status }
+        }],
+        $slice: -15
+      };
 
       if (status === ENQUIRY_STATUSES.CONVERTED) {
         requiresPaymentSetup = true;
@@ -185,12 +192,16 @@ class EnquiryService {
 
     // Add note
     if (note) {
-      enquiry.notes.push({
-        text: note,
-        addedBy: user.id,
-        createdAt: new Date()
-      });
-      enquiry.timeline.push({
+      pushOps.notes = {
+        $each: [{
+          text: note,
+          addedBy: user.id,
+          createdAt: new Date()
+        }],
+        $slice: -15
+      };
+      pushOps.timeline = pushOps.timeline || { $each: [], $slice: -15 };
+      pushOps.timeline.$each.push({
         type: 'note',
         message: `Note added by ${user.name}`,
         user: user.id,
@@ -201,11 +212,15 @@ class EnquiryService {
 
     // Update followUpDate
     if (followUpDate !== undefined) {
-      enquiry.followUpDate = followUpDate || null;
+      updateOps.$set.followUpDate = followUpDate || null;
     }
 
-    enquiry.updatedAt = new Date();
-    await enquiry.save();
+    // Add $push operations if any
+    if (Object.keys(pushOps).length > 0) {
+      updateOps.$push = pushOps;
+    }
+
+    await Enquiry.findByIdAndUpdate(enquiryId, updateOps);
 
     return {
       enquiry: await this.getEnquiryById(enquiryId),
@@ -280,7 +295,11 @@ class EnquiryService {
     }
 
     console.log('[DEBUG] bulkUpload complete - Created:', created.length, 'Errors:', errors.length);
-    return { created: created.length, errors, enquiries: created };
+    return {
+      successCount: created.length,
+      failedCount: errors.length,
+      errors
+    };
   }
 
   async deleteEnquiry(id, user) {

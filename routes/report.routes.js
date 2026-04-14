@@ -34,4 +34,18 @@ router.get(
   reportController.getInstallmentAlerts
 );
 
+router.get(
+  '/counselor-performance',
+  roleMiddleware(ROLES.ADMIN),
+  reportRangeValidation,
+  validateRequest,
+  reportController.getCounselorPerformance
+);
+
+router.get(
+  '/course-performance',
+  roleMiddleware(ROLES.ADMIN),
+  reportController.getCoursePerformance
+);
+
 module.exports = router;

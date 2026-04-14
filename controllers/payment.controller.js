@@ -22,6 +22,11 @@ class PaymentController {
     const payment = await paymentService.updatePayment(req.params.id, req.body, req.user);
     return successResponse(res, { payment }, 'Payment updated successfully');
   });
+
+  checkOverdueInstallments = catchAsync(async (req, res) => {
+    const result = await paymentService.checkOverdueInstallments();
+    return successResponse(res, result, 'Overdue installments check completed');
+  });
 }
 
 module.exports = new PaymentController();

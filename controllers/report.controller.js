@@ -19,6 +19,17 @@ class ReportController {
     const alerts = await reportService.getInstallmentAlerts();
     return successResponse(res, alerts, 'Installment alerts retrieved successfully');
   });
+
+  getCounselorPerformance = catchAsync(async (req, res) => {
+    const { range = 'monthly' } = req.query;
+    const report = await reportService.getCounselorPerformance(range);
+    return successResponse(res, report, 'Counselor performance report generated successfully');
+  });
+
+  getCoursePerformance = catchAsync(async (req, res) => {
+    const report = await reportService.getCoursePerformance();
+    return successResponse(res, report, 'Course performance report generated successfully');
+  });
 }
 
 module.exports = new ReportController();

@@ -11,6 +11,12 @@ const paymentSchema = new mongoose.Schema({
     required: [true, 'Payment amount is required'],
     min: [1, 'Payment amount must be at least 1']
   },
+  paymentMode: {
+    type: String,
+    required: [true, 'Payment mode is required'],
+    enum: ['CASH', 'CARD', 'ONLINE', 'UPI', 'CHEQUE'],
+    trim: true
+  },
   paymentDate: {
     type: Date,
     required: [true, 'Payment date is required'],
@@ -31,5 +37,7 @@ const paymentSchema = new mongoose.Schema({
 
 paymentSchema.index({ admissionId: 1 });
 paymentSchema.index({ paymentDate: -1 });
+paymentSchema.index({ createdBy: 1 });
+paymentSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Payment', paymentSchema);

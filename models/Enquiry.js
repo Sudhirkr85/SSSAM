@@ -5,7 +5,7 @@ const timelineSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['created', 'status_change', 'note', 'followup', 'converted', 'payment', 'locked', 'fees_updated', 'payment_plan_set', 'installment_created', 'installment_paid', 'full_payment_completed', 'assigned']
+    enum: ['created', 'status_change', 'note', 'followup', 'converted', 'payment', 'locked', 'fees_updated', 'payment_plan_set', 'installment_created', 'installment_paid', 'full_payment_completed', 'assigned', 'payment_updated']
   },
   message: {
     type: String,
@@ -121,11 +121,20 @@ enquirySchema.pre('save', function(next) {
 enquirySchema.index({ name: 'text', mobile: 'text', email: 'text' });
 enquirySchema.index({ status: 1 });
 enquirySchema.index({ assignedTo: 1 });
-enquirySchema.index({ followUpDate: 1 });
 enquirySchema.index({ createdAt: -1 });
 enquirySchema.index({ createdBy: 1 });
 enquirySchema.index({ status: 1, assignedTo: 1 });
 enquirySchema.index({ followUpDate: 1, status: 1 });
+
+// Partial index: only index followUpDate for active enquiries (not CONVERTED)
+enquirySchema.index(
+  { followUpDate: 1 },
+  {
+    partialFilterExpression: {
+      status: { $ne: 'CONVERTED' }
+    }
+  }
+);
 
 enquirySchema.virtual('isUnassigned').get(function() {
   return this.assignedTo === null;

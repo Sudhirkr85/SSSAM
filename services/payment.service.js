@@ -16,7 +16,7 @@ class PaymentService {
   }
 
   async createPayment(paymentData, user) {
-    const { admissionId, amount, nextInstallmentDate } = paymentData;
+    const { admissionId, amount, paymentMode, nextInstallmentDate } = paymentData;
 
     if (amount <= 0) {
       throw new AppError('Payment amount must be greater than 0', 400);
@@ -61,11 +61,13 @@ class PaymentService {
           installmentId: installment._id,
           amount: paymentForInstallment,
           previousStatus: installment.status,
-          newStatus: installment.paidAmount >= installment.amount ? 'Paid' : 'Pending'
+          newStatus: installment.paidAmount >= installment.amount ? 'PAID' : (installment.paidAmount > 0 ? 'PARTIAL' : 'PENDING')
         });
 
         if (installment.paidAmount >= installment.amount) {
-          installment.status = 'Paid';
+          installment.status = 'PAID';
+        } else if (installment.paidAmount > 0) {
+          installment.status = 'PARTIAL';
         }
       }
 
@@ -77,6 +79,7 @@ class PaymentService {
     const payment = await Payment.create({
       admissionId,
       amount,
+      paymentMode: paymentMode || 'CASH',
       paymentDate: new Date(),
       nextInstallmentDate: nextInstallmentDate || null,
       createdBy: user.id
@@ -85,45 +88,50 @@ class PaymentService {
     admission.paidAmount += amount;
     await admission.save();
 
-    const enquiry = await Enquiry.findById(admission.enquiryId);
-    if (enquiry) {
-      enquiry.timeline.push({
-        type: TIMELINE_TYPES.PAYMENT,
-        message: `Payment of ₹${amount} received by ${user.name}`,
+    // Build timeline entries
+    const timelineEntries = [{
+      type: TIMELINE_TYPES.PAYMENT,
+      message: `Payment of ₹${amount} received by ${user.name}`,
+      user: user.id,
+      userName: user.name,
+      timestamp: new Date(),
+      metadata: { amount, remainingPending: admission.pendingAmount }
+    }];
+
+    if (admission.paymentType === PAYMENT_TYPES.INSTALLMENT) {
+      installmentPayments.forEach(instPayment => {
+        if (instPayment.newStatus === 'PAID' && instPayment.previousStatus !== 'PAID') {
+          timelineEntries.push({
+            type: TIMELINE_TYPES.INSTALLMENT_PAID,
+            message: `Installment of ₹${instPayment.amount} marked as Paid by ${user.name}`,
+            user: user.id,
+            userName: user.name,
+            timestamp: new Date(),
+            metadata: { installmentId: instPayment.installmentId, amount: instPayment.amount }
+          });
+        }
+      });
+    }
+
+    if (admission.pendingAmount === 0) {
+      timelineEntries.push({
+        type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
+        message: `Full payment of ₹${admission.totalFees} completed by ${user.name}`,
         user: user.id,
         userName: user.name,
         timestamp: new Date(),
-        metadata: { amount, remainingPending: admission.pendingAmount }
+        metadata: { totalFees: admission.totalFees, totalPayments: amount }
       });
-
-      if (admission.paymentType === PAYMENT_TYPES.INSTALLMENT) {
-        installmentPayments.forEach(instPayment => {
-          if (instPayment.newStatus === 'Paid' && instPayment.previousStatus === 'Pending') {
-            enquiry.timeline.push({
-              type: TIMELINE_TYPES.INSTALLMENT_PAID,
-              message: `Installment of ₹${instPayment.amount} marked as Paid by ${user.name}`,
-              user: user.id,
-              userName: user.name,
-              timestamp: new Date(),
-              metadata: { installmentId: instPayment.installmentId, amount: instPayment.amount }
-            });
-          }
-        });
-      }
-
-      if (admission.pendingAmount === 0) {
-        enquiry.timeline.push({
-          type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
-          message: `Full payment of ₹${admission.totalFees} completed by ${user.name}`,
-          user: user.id,
-          userName: user.name,
-          timestamp: new Date(),
-          metadata: { totalFees: admission.totalFees, totalPayments: amount }
-        });
-      }
-
-      await enquiry.save();
     }
+
+    await Enquiry.findByIdAndUpdate(admission.enquiryId, {
+      $push: {
+        timeline: {
+          $each: timelineEntries,
+          $slice: -15
+        }
+      }
+    });
 
     return await Payment.findById(payment._id)
       .populate('createdBy', 'name email')
@@ -183,27 +191,76 @@ class PaymentService {
       await admission.save();
     }
 
-    payment.amount = newAmount || payment.amount;
+    payment.amount = newAmount !== undefined ? newAmount : payment.amount;
+    if (updateData.paymentMode !== undefined) {
+      payment.paymentMode = updateData.paymentMode;
+    }
     if (updateData.nextInstallmentDate !== undefined) {
       payment.nextInstallmentDate = updateData.nextInstallmentDate;
     }
 
     await payment.save();
 
-    const enquiry = await Enquiry.findById(admission.enquiryId);
-    if (enquiry) {
-      enquiry.timeline.push({
-        type: 'payment',
-        message: `Payment updated by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { oldAmount, newAmount }
-      });
-      await enquiry.save();
-    }
+    await Enquiry.findByIdAndUpdate(admission.enquiryId, {
+      $push: {
+        timeline: {
+          $each: [{
+            type: 'payment_updated',
+            message: `Payment updated by ${user.name}`,
+            user: user.id,
+            userName: user.name,
+            timestamp: new Date(),
+            metadata: { oldAmount, newAmount }
+          }],
+          $slice: -15
+        }
+      }
+    });
 
     return await this.getPaymentById(paymentId);
+  }
+
+  async checkOverdueInstallments() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const admissions = await Admission.find({
+      paymentType: 'INSTALLMENT',
+      installments: { $exists: true, $ne: [] }
+    });
+
+    let updatedCount = 0;
+    const overdueInstallments = [];
+
+    for (const admission of admissions) {
+      let hasChanges = false;
+
+      for (const installment of admission.installments) {
+        if (installment.status !== 'PAID' && new Date(installment.dueDate) < today) {
+          installment.status = 'OVERDUE';
+          hasChanges = true;
+          overdueInstallments.push({
+            admissionId: admission._id,
+            installmentId: installment._id,
+            amount: installment.amount,
+            paidAmount: installment.paidAmount,
+            dueDate: installment.dueDate
+          });
+        }
+      }
+
+      if (hasChanges) {
+        await admission.save();
+        updatedCount++;
+      }
+    }
+
+    return {
+      checkedAdmissions: admissions.length,
+      updatedAdmissions: updatedCount,
+      overdueCount: overdueInstallments.length,
+      overdueInstallments
+    };
   }
 }
 
