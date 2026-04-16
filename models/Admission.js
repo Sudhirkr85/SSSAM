@@ -29,12 +29,7 @@ const admissionSchema = new mongoose.Schema({
     required: [true, 'Enquiry ID is required'],
     unique: true
   },
-  studentName: {
-    type: String,
-    required: [true, 'Student name is required'],
-    trim: true,
-    maxlength: [100, 'Name cannot exceed 100 characters']
-  },
+  // studentName removed - get from populated enquiryId
   course: {
     type: String,
     required: [true, 'Course is required'],

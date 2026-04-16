@@ -32,7 +32,7 @@ class ReportService {
     const [admissions, totalAdmissions, previousPeriodAdmissions, totalEnquiries] = await Promise.all([
       Admission.find({
         admissionDate: { $gte: startDate, $lte: endDate }
-      }).populate('enquiryId', 'name course status'),
+      }).populate('enquiryId', 'name'),
 
       Admission.countDocuments({
         admissionDate: { $gte: startDate, $lte: endDate }
@@ -203,7 +203,7 @@ class ReportService {
     const admissions = await Admission.find({
       paymentType: 'INSTALLMENT',
       installments: { $exists: true, $ne: [] }
-    }).populate('enquiryId', 'name mobile courseInterested');
+    }).populate('enquiryId', 'name');
 
     const overdue = [];
     const upcoming = [];

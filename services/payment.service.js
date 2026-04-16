@@ -137,7 +137,7 @@ class PaymentService {
       .populate('createdBy', 'name email')
       .populate({
         path: 'admissionId',
-        populate: { path: 'enquiryId', select: 'name mobile course' }
+        populate: { path: 'enquiryId', select: 'name' }
       });
   }
 
@@ -159,7 +159,7 @@ class PaymentService {
       .populate('createdBy', 'name email')
       .populate({
         path: 'admissionId',
-        populate: { path: 'enquiryId', select: 'name mobile course' }
+        populate: { path: 'enquiryId', select: 'name' }
       });
 
     if (!payment) {

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { Admission, Enquiry, Payment } = require('../models');
 const AppError = require('../utils/AppError');
-const { ENQUIRY_STATUSES, PAYMENT_TYPES, TIMELINE_TYPES } = require('../config/constants');
+const { ENQUIRY_STATUSES, PAYMENT_TYPES, TIMELINE_TYPES, ROLES } = require('../config/constants');
 
 class AdmissionService {
   // Helper to add timeline entry with automatic capping at 15 items
@@ -57,7 +57,6 @@ class AdmissionService {
 
     const admission = await Admission.create({
       enquiryId,
-      studentName: enquiry.name,
       course: enquiry.courseInterested,
       counselorId: user.id,
       admissionDate,
@@ -88,7 +87,8 @@ class AdmissionService {
 
   async getAdmissionById(id) {
     const admission = await Admission.findById(id)
-      .populate('enquiryId', 'name mobile course status');
+      .populate('enquiryId', 'name')
+      .populate('counselorId', 'name');
 
     if (!admission) {
       throw new AppError('Admission not found', 404);
@@ -99,7 +99,8 @@ class AdmissionService {
 
   async getAdmissionByEnquiryId(enquiryId) {
     const admission = await Admission.findOne({ enquiryId })
-      .populate('enquiryId', 'name mobile course status');
+      .populate('enquiryId', 'name')
+      .populate('counselorId', 'name');
 
     if (!admission) {
       throw new AppError('Admission not found for this enquiry', 404);
@@ -113,6 +114,11 @@ class AdmissionService {
 
     if (!admission) {
       throw new AppError('Admission not found', 404);
+    }
+
+    // If admin and no counselor assigned, assign admin as counselor
+    if (user.role === ROLES.ADMIN && !admission.counselorId) {
+      admission.counselorId = user.id;
     }
 
     const oldFees = admission.totalFees;
@@ -136,6 +142,11 @@ class AdmissionService {
 
     if (!admission) {
       throw new AppError('Admission not found', 404);
+    }
+
+    // If admin and no counselor assigned, assign admin as counselor
+    if (user.role === ROLES.ADMIN && !admission.counselorId) {
+      admission.counselorId = user.id;
     }
 
     if (admission.isLocked) {
@@ -164,6 +175,11 @@ class AdmissionService {
       throw new AppError('Admission not found', 404);
     }
 
+    // If admin and no counselor assigned, assign admin as counselor
+    if (user.role === ROLES.ADMIN && !admission.counselorId) {
+      admission.counselorId = user.id;
+    }
+
     if (admission.isLocked) {
       throw new AppError('Cannot modify a locked admission', 403);
     }
@@ -185,15 +201,26 @@ class AdmissionService {
 
       admission.paymentType = PAYMENT_TYPES.ONE_TIME;
       admission.installments = [];
+      admission.paidAmount = admission.totalFees;
+      admission.pendingAmount = 0;
+      admission.isLocked = true;
       await admission.save();
 
       await this._addTimelineEntry(admission.enquiryId, {
         type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
-        message: `Payment plan set to ONE_TIME by ${user.name}`,
+        message: `Full payment of ₹${admission.totalFees} collected by ${user.name}`,
         user: user.id,
         userName: user.name,
         timestamp: new Date(),
-        metadata: { paymentType: PAYMENT_TYPES.ONE_TIME }
+        metadata: { paymentType: PAYMENT_TYPES.ONE_TIME, paidAmount: admission.totalFees }
+      });
+
+      await this._addTimelineEntry(admission.enquiryId, {
+        type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
+        message: `Admission locked after full payment by ${user.name}`,
+        user: user.id,
+        userName: user.name,
+        timestamp: new Date()
       });
     } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
       if (!installments || installments.length === 0) {
@@ -277,11 +304,13 @@ class AdmissionService {
       // If admission exists but not locked and payment data is provided, update it
       if (!existingAdmission.isLocked && existingAdmission.paidAmount === 0) {
         let formattedInstallments = [];
+        let isPaidAndLocked = false;
 
         if (paymentType === PAYMENT_TYPES.ONE_TIME) {
           if (installments.length > 0) {
             throw new AppError('ONE_TIME payment type should not have installments', 400);
           }
+          isPaidAndLocked = true;
         } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
           if (!installments || installments.length === 0) {
             throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
@@ -311,21 +340,45 @@ class AdmissionService {
         }
 
         existingAdmission.totalFees = totalFees;
-        existingAdmission.pendingAmount = totalFees;
+        existingAdmission.paidAmount = isPaidAndLocked ? totalFees : 0;
+        existingAdmission.pendingAmount = isPaidAndLocked ? 0 : totalFees;
         existingAdmission.paymentType = paymentType;
         existingAdmission.installments = formattedInstallments;
+        existingAdmission.isLocked = isPaidAndLocked;
         await existingAdmission.save();
 
-        await this._addTimelineEntry(enquiryId, {
+        const timelineEntries = [{
           type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
-          message: `Payment plan updated by ${user.name}`,
+          message: isPaidAndLocked
+            ? `Full payment of ₹${totalFees} collected by ${user.name}`
+            : `Payment plan updated by ${user.name}`,
           user: user.id,
           userName: user.name,
           timestamp: new Date(),
           metadata: {
             paymentType,
             totalFees,
-            installmentCount: formattedInstallments.length
+            installmentCount: formattedInstallments.length,
+            isLocked: isPaidAndLocked
+          }
+        }];
+
+        if (isPaidAndLocked) {
+          timelineEntries.push({
+            type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
+            message: `Admission locked after full payment by ${user.name}`,
+            user: user.id,
+            userName: user.name,
+            timestamp: new Date()
+          });
+        }
+
+        await Enquiry.findByIdAndUpdate(enquiryId, {
+          $push: {
+            timeline: {
+              $each: timelineEntries,
+              $slice: -15
+            }
           }
         });
 
@@ -353,10 +406,13 @@ class AdmissionService {
 
     let formattedInstallments = [];
 
+    let isPaidAndLocked = false;
+
     if (paymentType === PAYMENT_TYPES.ONE_TIME) {
       if (installments.length > 0) {
         throw new AppError('ONE_TIME payment type should not have installments', 400);
       }
+      isPaidAndLocked = true;
     } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
       if (!installments || installments.length === 0) {
         throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
@@ -387,22 +443,23 @@ class AdmissionService {
 
     const admission = await Admission.create({
       enquiryId,
-      studentName: enquiry.name,
       course: enquiry.courseInterested,
       counselorId: user.id,
       admissionDate: new Date(),
       totalFees,
-      paidAmount: 0,
-      pendingAmount: totalFees,
+      paidAmount: isPaidAndLocked ? totalFees : 0,
+      pendingAmount: isPaidAndLocked ? 0 : totalFees,
       paymentType,
       installments: formattedInstallments,
-      isLocked: false
+      isLocked: isPaidAndLocked
     });
 
     // Build all timeline entries
     const timelineEntries = [{
       type: TIMELINE_TYPES.CONVERTED,
-      message: `Admission created with payment plan by ${user.name}`,
+      message: isPaidAndLocked
+        ? `Admission created with full payment of ₹${totalFees} by ${user.name}`
+        : `Admission created with payment plan by ${user.name}`,
       user: user.id,
       userName: user.name,
       timestamp: new Date(),
@@ -410,9 +467,20 @@ class AdmissionService {
         admissionId: admission._id,
         paymentType,
         totalFees,
-        installmentCount: formattedInstallments.length
+        installmentCount: formattedInstallments.length,
+        isLocked: isPaidAndLocked
       }
     }];
+
+    if (isPaidAndLocked) {
+      timelineEntries.push({
+        type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
+        message: `Admission locked after full payment by ${user.name}`,
+        user: user.id,
+        userName: user.name,
+        timestamp: new Date()
+      });
+    }
 
     if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
       formattedInstallments.forEach((inst, index) => {
@@ -455,7 +523,8 @@ class AdmissionService {
 
     const [admissions, totalCount] = await Promise.all([
       Admission.find(filter)
-        .populate('enquiryId', 'name mobile course')
+        .populate('enquiryId', 'name')
+        .populate('counselorId', 'name')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit)),
