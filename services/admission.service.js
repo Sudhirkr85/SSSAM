@@ -57,6 +57,9 @@ class AdmissionService {
 
     const admission = await Admission.create({
       enquiryId,
+      studentName: enquiry.name,
+      course: enquiry.courseInterested,
+      counselorId: user.id,
       admissionDate,
       totalFees,
       paidAmount: 0,
@@ -384,6 +387,9 @@ class AdmissionService {
 
     const admission = await Admission.create({
       enquiryId,
+      studentName: enquiry.name,
+      course: enquiry.courseInterested,
+      counselorId: user.id,
       admissionDate: new Date(),
       totalFees,
       paidAmount: 0,
