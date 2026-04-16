@@ -269,10 +269,6 @@ class AdmissionService {
       throw new AppError('Enquiry not found', 404);
     }
 
-    if (enquiry.status !== ENQUIRY_STATUSES.CONVERTED) {
-      throw new AppError('Enquiry must be in Converted status to create admission', 400);
-    }
-
     const existingAdmission = await Admission.findOne({ enquiryId });
     if (existingAdmission) {
       // If admission exists but not locked and payment data is provided, update it
@@ -425,7 +421,9 @@ class AdmissionService {
       });
     }
 
+    // Auto-convert enquiry status and add timeline entries
     await Enquiry.findByIdAndUpdate(enquiryId, {
+      $set: { status: ENQUIRY_STATUSES.CONVERTED },
       $push: {
         timeline: {
           $each: timelineEntries,
