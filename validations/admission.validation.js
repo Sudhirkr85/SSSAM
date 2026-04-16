@@ -85,7 +85,7 @@ const createAdmissionFromEnquiryValidation = [
     .isArray({ min: 1 })
     .withMessage('At least one installment is required'),
   body('installments')
-    .if(body('paymentType').equals('ONE_TIME'))
+    .if((value, { req }) => req.body.paymentType === 'ONE_TIME' && value !== undefined)
     .isArray({ max: 0 })
     .withMessage('ONE_TIME payment type should not have installments'),
   body('installments.*.amount')
