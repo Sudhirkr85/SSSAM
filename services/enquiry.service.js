@@ -210,9 +210,15 @@ class EnquiryService {
       });
     }
 
-    // Update followUpDate
-    if (followUpDate !== undefined) {
-      updateOps.$set.followUpDate = followUpDate || null;
+    // Update followUpDate: only allow when status is FOLLOW_UP, otherwise clear it
+    if (status === ENQUIRY_STATUSES.FOLLOW_UP) {
+      // When status is FOLLOW_UP, followUpDate is required (validated above)
+      if (followUpDate !== undefined) {
+        updateOps.$set.followUpDate = followUpDate;
+      }
+    } else if (status && status !== ENQUIRY_STATUSES.FOLLOW_UP) {
+      // When changing to any other status, clear the followUpDate
+      updateOps.$set.followUpDate = null;
     }
 
     // Add $push operations if any
