@@ -156,6 +156,11 @@ class EnquiryService {
       }
     }
 
+    // Store original values before any modifications
+    const previousStatus = enquiry.status;
+    const previousAssignedTo = enquiry.assignedTo;
+    const previousFollowUpDate = enquiry.followUpDate;
+
     // Auto-assign on first counselor action
     let autoAssigned = false;
     if (!enquiry.assignedTo && user.role === ROLES.COUNSELOR) {
@@ -163,16 +168,19 @@ class EnquiryService {
       autoAssigned = true;
     }
 
-    const previousStatus = enquiry.status;
     let requiresPaymentSetup = false;
 
     // Track all changes for timeline
     const timelineEntries = [];
-    const previousAssignedTo = enquiry.assignedTo;
 
     // Build update operations
     const updateOps = { $set: { updatedAt: new Date() } };
     const pushOps = {};
+
+    // Add assignedTo to update if auto-assigned
+    if (autoAssigned) {
+      updateOps.$set.assignedTo = user.id;
+    }
 
     // Update status
     if (status && status !== enquiry.status) {
@@ -216,7 +224,6 @@ class EnquiryService {
     }
 
     // Update followUpDate with tracking
-    const previousFollowUpDate = enquiry.followUpDate;
     if (status === ENQUIRY_STATUSES.FOLLOW_UP) {
       if (followUpDate !== undefined && followUpDate !== previousFollowUpDate) {
         updateOps.$set.followUpDate = followUpDate;
@@ -249,8 +256,8 @@ class EnquiryService {
       });
     }
 
-    // Track assignment changes
-    if (autoAssigned && enquiry.assignedTo) {
+    // Track assignment changes (first time assignment)
+    if (autoAssigned) {
       const assignedToName = user.role === ROLES.COUNSELOR ? user.name : 'Admin';
       timelineEntries.push({
         type: 'assigned',
