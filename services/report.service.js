@@ -123,7 +123,7 @@ class ReportService {
 
     const counselorStats = await Promise.all(
       counselors.map(async (counselor) => {
-        const [assignedEnquiries, convertedEnquiries, admissions] = await Promise.all([
+        const [assignedEnquiries, convertedEnquiries, admissions, payments] = await Promise.all([
           Enquiry.countDocuments({
             assignedTo: counselor._id,
             createdAt: { $gte: startDate, $lte: endDate }
@@ -133,11 +133,25 @@ class ReportService {
             status: ENQUIRY_STATUSES.CONVERTED,
             updatedAt: { $gte: startDate, $lte: endDate }
           }),
-          Admission.countDocuments({
+          Admission.find({
             counselorId: counselor._id,
             admissionDate: { $gte: startDate, $lte: endDate }
+          }),
+          Payment.find({
+            paymentDate: { $gte: startDate, $lte: endDate }
+          }).populate({
+            path: 'admissionId',
+            match: { counselorId: counselor._id }
           })
         ]);
+
+        // Calculate total fees and paid amount from admissions
+        const totalFees = admissions.reduce((sum, a) => sum + a.totalFees, 0);
+        const totalPaid = admissions.reduce((sum, a) => sum + a.paidAmount, 0);
+        
+        // Filter valid payments (admissionId populated)
+        const validPayments = payments.filter(p => p.admissionId);
+        const revenue = validPayments.reduce((sum, p) => sum + p.amount, 0);
 
         const conversionRate = assignedEnquiries > 0
           ? ((convertedEnquiries / assignedEnquiries) * 100).toFixed(2)
@@ -149,7 +163,10 @@ class ReportService {
           email: counselor.email,
           assignedEnquiries,
           convertedEnquiries,
-          admissions,
+          admissions: admissions.length,
+          totalFees,
+          totalPaid,
+          revenue,
           conversionRate
         };
       })
@@ -163,7 +180,8 @@ class ReportService {
   }
 
   async getCoursePerformance() {
-    const courseStats = await Enquiry.aggregate([
+    // Get enquiry stats by course
+    const enquiryStats = await Enquiry.aggregate([
       {
         $group: {
           _id: '$courseInterested',
@@ -173,22 +191,64 @@ class ReportService {
           }
         }
       },
-      {
-        $project: {
-          course: '$_id',
-          totalEnquiries: 1,
-          converted: 1,
-          conversionRate: {
-            $cond: [
-              { $gt: ['$totalEnquiries', 0] },
-              { $multiply: [{ $divide: ['$converted', '$totalEnquiries'] }, 100] },
-              0
-            ]
-          }
-        }
-      },
       { $sort: { totalEnquiries: -1 } }
     ]);
+
+    // Get admissions and revenue by course
+    const admissionStats = await Admission.aggregate([
+      {
+        $lookup: {
+          from: 'enquiries',
+          localField: 'enquiryId',
+          foreignField: '_id',
+          as: 'enquiry'
+        }
+      },
+      { $unwind: '$enquiry' },
+      {
+        $group: {
+          _id: '$enquiry.courseInterested',
+          admissions: { $sum: 1 },
+          totalFees: { $sum: '$totalFees' },
+          paidAmount: { $sum: '$paidAmount' }
+        }
+      }
+    ]);
+
+    // Create lookup maps
+    const admissionMap = admissionStats.reduce((map, stat) => {
+      map[stat._id] = {
+        admissions: stat.admissions,
+        totalFees: stat.totalFees,
+        paidAmount: stat.paidAmount,
+        pendingAmount: stat.totalFees - stat.paidAmount
+      };
+      return map;
+    }, {});
+
+    // Merge enquiry stats with admission stats
+    const courseStats = enquiryStats.map(enq => {
+      const adm = admissionMap[enq._id] || {
+        admissions: 0,
+        totalFees: 0,
+        paidAmount: 0,
+        pendingAmount: 0
+      };
+
+      return {
+        course: enq._id,
+        totalEnquiries: enq.totalEnquiries,
+        converted: enq.converted,
+        admissions: adm.admissions,
+        totalFees: adm.totalFees,
+        paidAmount: adm.paidAmount,
+        pendingAmount: adm.pendingAmount,
+        revenue: adm.paidAmount,
+        conversionRate: enq.totalEnquiries > 0
+          ? ((enq.converted / enq.totalEnquiries) * 100).toFixed(2)
+          : 0
+      };
+    });
 
     return { courseStats };
   }
