@@ -166,6 +166,10 @@ class EnquiryService {
     const previousStatus = enquiry.status;
     let requiresPaymentSetup = false;
 
+    // Track all changes for timeline
+    const timelineEntries = [];
+    const previousAssignedTo = enquiry.assignedTo;
+
     // Build update operations
     const updateOps = { $set: { updatedAt: new Date() } };
     const pushOps = {};
@@ -173,17 +177,18 @@ class EnquiryService {
     // Update status
     if (status && status !== enquiry.status) {
       updateOps.$set.status = status;
-      pushOps.timeline = {
-        $each: [{
-          type: 'status_change',
-          message: `Status changed from "${previousStatus}" to "${status}"`,
-          user: user.id,
-          userName: user.name,
-          timestamp: new Date(),
-          metadata: { previousStatus, newStatus: status }
-        }],
-        $slice: -15
-      };
+      timelineEntries.push({
+        type: 'status_change',
+        message: `Status changed from "${previousStatus}" to "${status}"`,
+        user: user.id,
+        userName: user.name,
+        timestamp: new Date(),
+        metadata: { 
+          field: 'status',
+          previousValue: previousStatus, 
+          newValue: status 
+        }
+      });
 
       if (status === ENQUIRY_STATUSES.CONVERTED) {
         requiresPaymentSetup = true;
@@ -200,25 +205,73 @@ class EnquiryService {
         }],
         $slice: -15
       };
-      pushOps.timeline = pushOps.timeline || { $each: [], $slice: -15 };
-      pushOps.timeline.$each.push({
+      timelineEntries.push({
         type: 'note',
-        message: `Note added by ${user.name}`,
+        message: `Note added by ${user.name}: "${note}"`,
         user: user.id,
         userName: user.name,
-        timestamp: new Date()
+        timestamp: new Date(),
+        metadata: { field: 'note', noteText: note }
       });
     }
 
-    // Update followUpDate: only allow when status is FOLLOW_UP, otherwise clear it
+    // Update followUpDate with tracking
+    const previousFollowUpDate = enquiry.followUpDate;
     if (status === ENQUIRY_STATUSES.FOLLOW_UP) {
-      // When status is FOLLOW_UP, followUpDate is required (validated above)
-      if (followUpDate !== undefined) {
+      if (followUpDate !== undefined && followUpDate !== previousFollowUpDate) {
         updateOps.$set.followUpDate = followUpDate;
+        timelineEntries.push({
+          type: 'followup',
+          message: `Follow-up date set to ${new Date(followUpDate).toLocaleDateString()}`,
+          user: user.id,
+          userName: user.name,
+          timestamp: new Date(),
+          metadata: { 
+            field: 'followUpDate', 
+            previousValue: previousFollowUpDate, 
+            newValue: followUpDate 
+          }
+        });
       }
-    } else if (status && status !== ENQUIRY_STATUSES.FOLLOW_UP) {
-      // When changing to any other status, clear the followUpDate
+    } else if (status && status !== ENQUIRY_STATUSES.FOLLOW_UP && previousFollowUpDate) {
       updateOps.$set.followUpDate = null;
+      timelineEntries.push({
+        type: 'followup_cleared',
+        message: `Follow-up date cleared`,
+        user: user.id,
+        userName: user.name,
+        timestamp: new Date(),
+        metadata: { 
+          field: 'followUpDate', 
+          previousValue: previousFollowUpDate, 
+          newValue: null 
+        }
+      });
+    }
+
+    // Track assignment changes
+    if (autoAssigned && enquiry.assignedTo) {
+      const assignedToName = user.role === ROLES.COUNSELOR ? user.name : 'Admin';
+      timelineEntries.push({
+        type: 'assigned',
+        message: `Enquiry assigned to ${assignedToName}`,
+        user: user.id,
+        userName: user.name,
+        timestamp: new Date(),
+        metadata: { 
+          field: 'assignedTo', 
+          previousValue: previousAssignedTo, 
+          newValue: enquiry.assignedTo 
+        }
+      });
+    }
+
+    // Add timeline entries to push operations
+    if (timelineEntries.length > 0) {
+      pushOps.timeline = {
+        $each: timelineEntries,
+        $slice: -15
+      };
     }
 
     // Add $push operations if any

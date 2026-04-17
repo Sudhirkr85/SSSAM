@@ -58,6 +58,7 @@ const updateEnquiryValidation = [
   
   body('followUpDate')
     .optional({ nullable: true })
+    .if((value) => value !== '' && value !== undefined && value !== null)
     .isISO8601()
     .withMessage('Please provide a valid date')
     .toDate(),

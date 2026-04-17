@@ -1,4 +1,4 @@
-const { ROLES } = require('../config/constants');
+const { ROLES, ENQUIRY_STATUSES } = require('../config/constants');
 
 /**
  * Check if user can VIEW an enquiry
@@ -17,16 +17,18 @@ function canAccessEnquiry(user, enquiry) {
 /**
  * Check if user can MODIFY an enquiry
  * - Admin: can modify all (even converted)
- * - Counselor: can modify only assigned (and not converted)
+ * - Counselor: can modify any enquiry (tracking in timeline)
+ * - Only CONVERTED enquiries are restricted to admin
  */
 function canModifyEnquiry(user, enquiry) {
+  // Admin can modify everything including converted
   if (user.role === ROLES.ADMIN) return true;
 
-  const assignedToId = enquiry.assignedTo?.toString();
-  const userId = user.id?.toString();
+  // Counselor can modify any enquiry except converted
+  if (enquiry.status === ENQUIRY_STATUSES.CONVERTED) return false;
 
-  // Must be assigned to this counselor
-  return assignedToId === userId;
+  // Counselor can modify any non-converted enquiry
+  return true;
 }
 
 /**

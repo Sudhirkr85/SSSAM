@@ -62,7 +62,7 @@ const enquiryOwnershipMiddleware = catchAsync(async (req, res, next) => {
     return next();
   }
 
-  // Counselor cannot edit CONVERTED enquiries
+  // Counselor cannot edit CONVERTED enquiries (admin only)
   if (enquiry.status === ENQUIRY_STATUSES.CONVERTED) {
     return errorResponse(
       res,
@@ -71,19 +71,8 @@ const enquiryOwnershipMiddleware = catchAsync(async (req, res, next) => {
     );
   }
 
-  // Counselor can only edit if assigned OR unassigned (will auto-assign)
-  const isAssignedToUser = enquiry.assignedTo?.toString() === user.id?.toString();
-  const isUnassigned = enquiry.assignedTo === null;
-
-  if (isAssignedToUser || isUnassigned) {
-    return next();
-  }
-
-  return errorResponse(
-    res,
-    'Access denied. You can only edit enquiries assigned to you.',
-    403
-  );
+  // All users can edit non-converted enquiries (tracking in timeline)
+  return next();
 });
 
 /**
