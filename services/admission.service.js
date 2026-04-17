@@ -87,7 +87,7 @@ class AdmissionService {
 
   async getAdmissionById(id) {
     const admission = await Admission.findById(id)
-      .populate('enquiryId', 'name')
+      .populate('enquiryId', 'name mobile')
       .populate('counselorId', 'name');
 
     if (!admission) {
@@ -99,7 +99,7 @@ class AdmissionService {
 
   async getAdmissionByEnquiryId(enquiryId) {
     const admission = await Admission.findOne({ enquiryId })
-      .populate('enquiryId', 'name')
+      .populate('enquiryId', 'name mobile')
       .populate('counselorId', 'name');
 
     if (!admission) {
@@ -558,7 +558,7 @@ class AdmissionService {
 
     const [admissions, totalCount] = await Promise.all([
       Admission.find(filter)
-        .populate('enquiryId', 'name')
+        .populate('enquiryId', 'name mobile')
         .populate('counselorId', 'name')
         .sort({ createdAt: -1 })
         .skip(skip)
