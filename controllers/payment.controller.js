@@ -8,6 +8,11 @@ class PaymentController {
     return successResponse(res, { payment }, 'Payment recorded successfully', 201);
   });
 
+  listPayments = catchAsync(async (req, res) => {
+    const result = await paymentService.listPayments(req.query);
+    return successResponse(res, result, 'Payments retrieved successfully');
+  });
+
   getPaymentsByAdmission = catchAsync(async (req, res) => {
     const payments = await paymentService.getPaymentsByAdmission(req.params.admissionId);
     return successResponse(res, { payments }, 'Payments retrieved successfully');

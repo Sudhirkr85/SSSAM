@@ -220,6 +220,53 @@ class PaymentService {
     return await this.getPaymentById(paymentId);
   }
 
+  async listPayments(queryParams) {
+    const { page = 1, limit = 10, admissionId, startDate, endDate } = queryParams;
+    const skip = (page - 1) * limit;
+
+    // Build filter
+    const filter = {};
+    if (admissionId) {
+      filter.admissionId = admissionId;
+    }
+    if (startDate || endDate) {
+      filter.paymentDate = {};
+      if (startDate) {
+        filter.paymentDate.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        filter.paymentDate.$lte = new Date(endDate);
+      }
+    }
+
+    const [payments, totalCount] = await Promise.all([
+      Payment.find(filter)
+        .populate('createdBy', 'name email')
+        .populate({
+          path: 'admissionId',
+          populate: { path: 'enquiryId', select: 'name mobile courseInterested' }
+        })
+        .sort({ paymentDate: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Payment.countDocuments(filter)
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      payments,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalCount,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+      }
+    };
+  }
+
   async checkOverdueInstallments() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);

@@ -18,6 +18,12 @@ const {
 
 router.use(authMiddleware);
 
+router.get(
+  '/',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  paymentController.listPayments
+);
+
 router.post(
   '/',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),

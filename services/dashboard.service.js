@@ -55,23 +55,22 @@ class DashboardService {
   }
   
   async _calculateRevenue(dateRange) {
-    const admissions = await Admission.find({
-      createdAt: { $gte: dateRange.start, $lte: dateRange.end }
-    });
-    
-    // Sum payments within the date range
-    let revenue = 0;
-    for (const admission of admissions) {
-      if (admission.payments && admission.payments.length > 0) {
-        for (const payment of admission.payments) {
-          if (payment.date >= dateRange.start && payment.date <= dateRange.end) {
-            revenue += payment.amount;
-          }
+    // Query Payment collection directly for revenue calculation
+    const result = await Payment.aggregate([
+      {
+        $match: {
+          paymentDate: { $gte: dateRange.start, $lte: dateRange.end }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: '$amount' }
         }
       }
-    }
+    ]);
     
-    return revenue;
+    return result.length > 0 ? result[0].totalRevenue : 0;
   }
 
   // Get enquiry statistics

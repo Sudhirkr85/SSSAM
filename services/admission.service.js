@@ -207,6 +207,15 @@ class AdmissionService {
       admission.isLocked = true;
       await admission.save();
 
+      // Create payment record for ONE_TIME payment
+      await Payment.create({
+        admissionId: admission._id,
+        amount: admission.totalFees,
+        paymentMode: paymentMethod,
+        paymentDate: new Date(),
+        createdBy: user.id
+      });
+
       await this._addTimelineEntry(admission.enquiryId, {
         type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
         message: `Full payment of ₹${admission.totalFees} collected via ${paymentMethod} by ${user.name}`,
@@ -349,6 +358,17 @@ class AdmissionService {
         existingAdmission.isLocked = isPaidAndLocked;
         await existingAdmission.save();
 
+        // Create payment record for ONE_TIME payment
+        if (isPaidAndLocked) {
+          await Payment.create({
+            admissionId: existingAdmission._id,
+            amount: totalFees,
+            paymentMode: paymentMethod,
+            paymentDate: new Date(),
+            createdBy: user.id
+          });
+        }
+
         const timelineEntries = [{
           type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
           message: isPaidAndLocked
@@ -457,6 +477,17 @@ class AdmissionService {
       installments: formattedInstallments,
       isLocked: isPaidAndLocked
     });
+
+    // Create payment record for ONE_TIME payment
+    if (isPaidAndLocked) {
+      await Payment.create({
+        admissionId: admission._id,
+        amount: totalFees,
+        paymentMode: paymentMethod,
+        paymentDate: new Date(),
+        createdBy: user.id
+      });
+    }
 
     // Build all timeline entries
     const timelineEntries = [{

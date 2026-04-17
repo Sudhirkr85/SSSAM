@@ -123,7 +123,7 @@ class ReportService {
 
     const counselorStats = await Promise.all(
       counselors.map(async (counselor) => {
-        const [assignedEnquiries, convertedEnquiries, admissions, payments] = await Promise.all([
+        const [assignedEnquiries, convertedEnquiries, admissions, paymentsRevenue] = await Promise.all([
           Enquiry.countDocuments({
             assignedTo: counselor._id,
             createdAt: { $gte: startDate, $lte: endDate }
@@ -137,21 +137,42 @@ class ReportService {
             counselorId: counselor._id,
             admissionDate: { $gte: startDate, $lte: endDate }
           }),
-          Payment.find({
-            paymentDate: { $gte: startDate, $lte: endDate }
-          }).populate({
-            path: 'admissionId',
-            match: { counselorId: counselor._id }
-          })
+          // Use aggregation to properly calculate revenue for this counselor's admissions
+          Payment.aggregate([
+            {
+              $match: {
+                paymentDate: { $gte: startDate, $lte: endDate }
+              }
+            },
+            {
+              $lookup: {
+                from: 'admissions',
+                localField: 'admissionId',
+                foreignField: '_id',
+                as: 'admission'
+              }
+            },
+            { $unwind: '$admission' },
+            {
+              $match: {
+                'admission.counselorId': counselor._id
+              }
+            },
+            {
+              $group: {
+                _id: null,
+                totalRevenue: { $sum: '$amount' }
+              }
+            }
+          ])
         ]);
 
         // Calculate total fees and paid amount from admissions
         const totalFees = admissions.reduce((sum, a) => sum + a.totalFees, 0);
         const totalPaid = admissions.reduce((sum, a) => sum + a.paidAmount, 0);
-        
-        // Filter valid payments (admissionId populated)
-        const validPayments = payments.filter(p => p.admissionId);
-        const revenue = validPayments.reduce((sum, p) => sum + p.amount, 0);
+
+        // Get revenue from aggregation result
+        const revenue = paymentsRevenue.length > 0 ? paymentsRevenue[0].totalRevenue : 0;
 
         const conversionRate = assignedEnquiries > 0
           ? ((convertedEnquiries / assignedEnquiries) * 100).toFixed(2)
