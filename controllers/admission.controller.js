@@ -45,13 +45,13 @@ class AdmissionController {
   });
 
   createAdmissionFromEnquiry = catchAsync(async (req, res) => {
-    const { paymentType, installments, totalFees } = req.body;
+    const { paymentType, installments, totalFees, paymentMethod } = req.body;
     const result = await admissionService.createAdmissionFromEnquiry(
       req.params.enquiryId,
-      { paymentType, installments, totalFees },
+      { paymentType, installments, totalFees, paymentMethod },
       req.user
     );
-    const message = result.alreadyExists 
+    const message = result.alreadyExists
       ? 'Admission already exists for this enquiry'
       : 'Admission created successfully with payment plan';
     const statusCode = result.alreadyExists ? 200 : 201;

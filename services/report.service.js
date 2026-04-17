@@ -4,6 +4,12 @@ const { ENQUIRY_STATUSES } = require('../config/constants');
 class ReportService {
   getDateRange(range) {
     const now = new Date();
+
+    // 'all' returns null dates (no filtering)
+    if (range === 'all') {
+      return { startDate: null, endDate: null };
+    }
+
     const startDate = new Date(now);
 
     switch (range) {
@@ -26,82 +32,81 @@ class ReportService {
     return { startDate, endDate: now };
   }
 
-  async getAdmissionsReport(range) {
+  async getAdmissionsReport(range = 'all') {
     const { startDate, endDate } = this.getDateRange(range);
+    const hasDateFilter = startDate && endDate;
 
-    const [admissions, totalAdmissions, previousPeriodAdmissions, totalEnquiries] = await Promise.all([
-      Admission.find({
-        admissionDate: { $gte: startDate, $lte: endDate }
-      }).populate('enquiryId', 'name'),
+    // Build date filters dynamically
+    const admissionDateFilter = hasDateFilter ? { admissionDate: { $gte: startDate, $lte: endDate } } : {};
+    const enquiryDateFilter = hasDateFilter ? { createdAt: { $lte: endDate } } : {};
+    const convertedDateFilter = hasDateFilter ? { updatedAt: { $gte: startDate, $lte: endDate } } : {};
+    const previousPeriodFilter = hasDateFilter ? { admissionDate: { $lt: startDate } } : {};
 
-      Admission.countDocuments({
-        admissionDate: { $gte: startDate, $lte: endDate }
-      }),
-
-      Admission.countDocuments({
-        admissionDate: { $lt: startDate }
-      }),
-
-      Enquiry.countDocuments({
-        createdAt: { $lte: endDate }
-      })
+    const [admissions, periodAdmissions, previousPeriodAdmissions, totalEnquiries] = await Promise.all([
+      Admission.find(admissionDateFilter).populate('enquiryId', 'name'),
+      Admission.countDocuments(admissionDateFilter),
+      Admission.countDocuments(previousPeriodFilter),
+      Enquiry.countDocuments(enquiryDateFilter)
     ]);
 
     const enquiriesConverted = await Enquiry.countDocuments({
       status: ENQUIRY_STATUSES.CONVERTED,
-      updatedAt: { $gte: startDate, $lte: endDate }
+      ...convertedDateFilter
     });
 
-    const conversionRate = totalEnquiries > 0
-      ? ((await Admission.countDocuments()) / totalEnquiries * 100).toFixed(2)
+    const allTimeAdmissions = await Admission.countDocuments();
+    const allTimeEnquiries = await Enquiry.countDocuments();
+    const conversionRate = allTimeEnquiries > 0
+      ? ((allTimeAdmissions / allTimeEnquiries) * 100).toFixed(2)
       : 0;
 
     return {
       range,
-      dateRange: { startDate, endDate },
+      dateRange: hasDateFilter ? { startDate, endDate } : null,
       summary: {
         totalEnquiries,
-        totalAdmissions,
+        totalAdmissions: periodAdmissions,
         enquiriesConverted,
         conversionRate,
-        previousPeriodAdmissions,
-        growth: previousPeriodAdmissions > 0
-          ? ((totalAdmissions - previousPeriodAdmissions) / previousPeriodAdmissions * 100).toFixed(2)
-          : 0
+        allTimeAdmissions,
+        allTimeEnquiries,
+        previousPeriodAdmissions: hasDateFilter ? previousPeriodAdmissions : null,
+        growth: hasDateFilter && previousPeriodAdmissions > 0
+          ? ((periodAdmissions - previousPeriodAdmissions) / previousPeriodAdmissions * 100).toFixed(2)
+          : null
       },
       admissions
     };
   }
 
-  async getFeesReport(range) {
+  async getFeesReport(range = 'all') {
     const { startDate, endDate } = this.getDateRange(range);
+    const hasDateFilter = startDate && endDate;
 
-    const [allAdmissions, paymentsInPeriod, totalRevenue] = await Promise.all([
+    // Build date filters dynamically
+    const paymentDateFilter = hasDateFilter ? { paymentDate: { $gte: startDate, $lte: endDate } } : {};
+
+    const [allAdmissions, paymentsInPeriod, totalRevenueAgg, periodRevenueAgg] = await Promise.all([
       Admission.find(),
-      Payment.find({
-        paymentDate: { $gte: startDate, $lte: endDate }
-      }).populate('createdBy', 'name'),
-
-      Payment.aggregate([
-        {
-          $group: {
-            _id: null,
-            total: { $sum: '$amount' }
-          }
-        }
-      ])
+      Payment.find(paymentDateFilter).populate('createdBy', 'name'),
+      Payment.aggregate([{ $group: { _id: null, total: { $sum: '$amount' } } }]),
+      hasDateFilter
+        ? Payment.aggregate([{ $match: paymentDateFilter }, { $group: { _id: null, total: { $sum: '$amount' } } }])
+        : Promise.resolve([{ total: 0 }])
     ]);
 
     const totalFeesExpected = allAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
     const totalPaid = allAdmissions.reduce((sum, a) => sum + a.paidAmount, 0);
     const totalPending = allAdmissions.reduce((sum, a) => sum + a.pendingAmount, 0);
 
-    const revenueInPeriod = paymentsInPeriod.reduce((sum, p) => sum + p.amount, 0);
-    const totalRevenueCollected = totalRevenue.length > 0 ? totalRevenue[0].total : 0;
+    const totalRevenueCollected = totalRevenueAgg.length > 0 ? totalRevenueAgg[0].total : 0;
+    const revenueInPeriod = hasDateFilter
+      ? (periodRevenueAgg.length > 0 ? periodRevenueAgg[0].total : 0)
+      : totalRevenueCollected;
 
     return {
       range,
-      dateRange: { startDate, endDate },
+      dateRange: hasDateFilter ? { startDate, endDate } : null,
       summary: {
         totalFeesExpected,
         totalPaid,
@@ -116,86 +121,113 @@ class ReportService {
     };
   }
 
-  async getCounselorPerformance(range) {
+  async getCounselorPerformance(range = 'all') {
     const { startDate, endDate } = this.getDateRange(range);
+    const hasDateFilter = startDate && endDate;
 
     const counselors = await User.find({ role: 'counselor' });
 
     const counselorStats = await Promise.all(
       counselors.map(async (counselor) => {
-        const [assignedEnquiries, convertedEnquiries, admissions, paymentsRevenue] = await Promise.all([
-          Enquiry.countDocuments({
-            assignedTo: counselor._id,
-            createdAt: { $gte: startDate, $lte: endDate }
-          }),
-          Enquiry.countDocuments({
-            assignedTo: counselor._id,
-            status: ENQUIRY_STATUSES.CONVERTED,
-            updatedAt: { $gte: startDate, $lte: endDate }
-          }),
-          Admission.find({
-            counselorId: counselor._id,
-            admissionDate: { $gte: startDate, $lte: endDate }
-          }),
-          // Use aggregation to properly calculate revenue for this counselor's admissions
+        // Get all-time stats (no date filter)
+        const [
+          allTimeAssignedEnquiries,
+          allTimeConvertedEnquiries,
+          allTimeAdmissions,
+          allTimePaymentsRevenue
+        ] = await Promise.all([
+          Enquiry.countDocuments({ assignedTo: counselor._id }),
+          Enquiry.countDocuments({ assignedTo: counselor._id, status: ENQUIRY_STATUSES.CONVERTED }),
+          Admission.find({ counselorId: counselor._id }),
           Payment.aggregate([
-            {
-              $match: {
-                paymentDate: { $gte: startDate, $lte: endDate }
-              }
-            },
-            {
-              $lookup: {
-                from: 'admissions',
-                localField: 'admissionId',
-                foreignField: '_id',
-                as: 'admission'
-              }
-            },
+            { $lookup: { from: 'admissions', localField: 'admissionId', foreignField: '_id', as: 'admission' } },
             { $unwind: '$admission' },
-            {
-              $match: {
-                'admission.counselorId': counselor._id
-              }
-            },
-            {
-              $group: {
-                _id: null,
-                totalRevenue: { $sum: '$amount' }
-              }
-            }
+            { $match: { 'admission.counselorId': counselor._id } },
+            { $group: { _id: null, totalRevenue: { $sum: '$amount' } } }
           ])
         ]);
 
-        // Calculate total fees and paid amount from admissions
-        const totalFees = admissions.reduce((sum, a) => sum + a.totalFees, 0);
-        const totalPaid = admissions.reduce((sum, a) => sum + a.paidAmount, 0);
+        // Calculate all-time totals
+        const allTimeTotalFees = allTimeAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
+        const allTimeTotalPaid = allTimeAdmissions.reduce((sum, a) => sum + a.paidAmount, 0);
+        const allTimeRevenue = allTimePaymentsRevenue.length > 0 ? allTimePaymentsRevenue[0].totalRevenue : 0;
 
-        // Get revenue from aggregation result
-        const revenue = paymentsRevenue.length > 0 ? paymentsRevenue[0].totalRevenue : 0;
+        // Get period stats if date filter applied
+        let periodStats = null;
+        if (hasDateFilter) {
+          const [
+            periodAssignedEnquiries,
+            periodConvertedEnquiries,
+            periodAdmissions,
+            periodPaymentsRevenue
+          ] = await Promise.all([
+            Enquiry.countDocuments({
+              assignedTo: counselor._id,
+              createdAt: { $gte: startDate, $lte: endDate }
+            }),
+            Enquiry.countDocuments({
+              assignedTo: counselor._id,
+              status: ENQUIRY_STATUSES.CONVERTED,
+              updatedAt: { $gte: startDate, $lte: endDate }
+            }),
+            Admission.find({
+              counselorId: counselor._id,
+              admissionDate: { $gte: startDate, $lte: endDate }
+            }),
+            Payment.aggregate([
+              { $match: { paymentDate: { $gte: startDate, $lte: endDate } } },
+              { $lookup: { from: 'admissions', localField: 'admissionId', foreignField: '_id', as: 'admission' } },
+              { $unwind: '$admission' },
+              { $match: { 'admission.counselorId': counselor._id } },
+              { $group: { _id: null, totalRevenue: { $sum: '$amount' } } }
+            ])
+          ]);
 
-        const conversionRate = assignedEnquiries > 0
-          ? ((convertedEnquiries / assignedEnquiries) * 100).toFixed(2)
+          const periodTotalFees = periodAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
+          const periodTotalPaid = periodAdmissions.reduce((sum, a) => sum + a.paidAmount, 0);
+          const periodRevenue = periodPaymentsRevenue.length > 0 ? periodPaymentsRevenue[0].totalRevenue : 0;
+          const periodConversionRate = periodAssignedEnquiries > 0
+            ? ((periodConvertedEnquiries / periodAssignedEnquiries) * 100).toFixed(2)
+            : 0;
+
+          periodStats = {
+            assignedEnquiries: periodAssignedEnquiries,
+            convertedEnquiries: periodConvertedEnquiries,
+            admissions: periodAdmissions.length,
+            totalFees: periodTotalFees,
+            totalPaid: periodTotalPaid,
+            revenue: periodRevenue,
+            conversionRate: periodConversionRate
+          };
+        }
+
+        const allTimeConversionRate = allTimeAssignedEnquiries > 0
+          ? ((allTimeConvertedEnquiries / allTimeAssignedEnquiries) * 100).toFixed(2)
           : 0;
 
         return {
           counselorId: counselor._id,
           counselorName: counselor.name,
           email: counselor.email,
-          assignedEnquiries,
-          convertedEnquiries,
-          admissions: admissions.length,
-          totalFees,
-          totalPaid,
-          revenue,
-          conversionRate
+          // All-time totals (default view)
+          total: {
+            assignedEnquiries: allTimeAssignedEnquiries,
+            convertedEnquiries: allTimeConvertedEnquiries,
+            admissions: allTimeAdmissions.length,
+            totalFees: allTimeTotalFees,
+            totalPaid: allTimeTotalPaid,
+            revenue: allTimeRevenue,
+            conversionRate: allTimeConversionRate
+          },
+          // Period breakdown (if range specified)
+          period: periodStats
         };
       })
     );
 
     return {
       range,
-      dateRange: { startDate, endDate },
+      dateRange: hasDateFilter ? { startDate, endDate } : null,
       counselorStats
     };
   }
