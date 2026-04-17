@@ -57,6 +57,11 @@ const admissionSchema = new mongoose.Schema({
     type: [installmentSchema],
     default: []
   },
+  paymentMethod: {
+    type: String,
+    enum: ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'],
+    default: null
+  },
   counselorId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

@@ -168,7 +168,7 @@ class AdmissionService {
   }
 
   async setPaymentPlan(admissionId, paymentData, user) {
-    const { paymentType, installments = [] } = paymentData;
+    const { paymentType, paymentMethod, installments = [] } = paymentData;
 
     const admission = await Admission.findById(admissionId);
     if (!admission) {
@@ -200,6 +200,7 @@ class AdmissionService {
       }
 
       admission.paymentType = PAYMENT_TYPES.ONE_TIME;
+      admission.paymentMethod = paymentMethod;
       admission.installments = [];
       admission.paidAmount = admission.totalFees;
       admission.pendingAmount = 0;
@@ -208,11 +209,11 @@ class AdmissionService {
 
       await this._addTimelineEntry(admission.enquiryId, {
         type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
-        message: `Full payment of ₹${admission.totalFees} collected by ${user.name}`,
+        message: `Full payment of ₹${admission.totalFees} collected via ${paymentMethod} by ${user.name}`,
         user: user.id,
         userName: user.name,
         timestamp: new Date(),
-        metadata: { paymentType: PAYMENT_TYPES.ONE_TIME, paidAmount: admission.totalFees }
+        metadata: { paymentType: PAYMENT_TYPES.ONE_TIME, paymentMethod, paidAmount: admission.totalFees }
       });
 
       await this._addTimelineEntry(admission.enquiryId, {
@@ -292,7 +293,7 @@ class AdmissionService {
   }
 
   async createAdmissionFromEnquiry(enquiryId, paymentData, user) {
-    const { paymentType, installments = [], totalFees } = paymentData;
+    const { paymentType, paymentMethod, installments = [], totalFees } = paymentData;
 
     const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) {
@@ -343,6 +344,7 @@ class AdmissionService {
         existingAdmission.paidAmount = isPaidAndLocked ? totalFees : 0;
         existingAdmission.pendingAmount = isPaidAndLocked ? 0 : totalFees;
         existingAdmission.paymentType = paymentType;
+        existingAdmission.paymentMethod = isPaidAndLocked ? paymentMethod : null;
         existingAdmission.installments = formattedInstallments;
         existingAdmission.isLocked = isPaidAndLocked;
         await existingAdmission.save();
@@ -357,6 +359,7 @@ class AdmissionService {
           timestamp: new Date(),
           metadata: {
             paymentType,
+            paymentMethod: isPaidAndLocked ? paymentMethod : null,
             totalFees,
             installmentCount: formattedInstallments.length,
             isLocked: isPaidAndLocked
@@ -450,6 +453,7 @@ class AdmissionService {
       paidAmount: isPaidAndLocked ? totalFees : 0,
       pendingAmount: isPaidAndLocked ? 0 : totalFees,
       paymentType,
+      paymentMethod: isPaidAndLocked ? paymentMethod : null,
       installments: formattedInstallments,
       isLocked: isPaidAndLocked
     });

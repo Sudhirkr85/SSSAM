@@ -43,6 +43,12 @@ const setPaymentPlanValidation = [
     .withMessage('Payment type is required')
     .isIn(['ONE_TIME', 'INSTALLMENT'])
     .withMessage('Payment type must be ONE_TIME or INSTALLMENT'),
+  body('paymentMethod')
+    .if(body('paymentType').equals('ONE_TIME'))
+    .notEmpty()
+    .withMessage('Payment method is required for ONE_TIME payment')
+    .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
+    .withMessage('Payment method must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
   body('installments')
     .optional()
     .isArray()
@@ -73,6 +79,12 @@ const createAdmissionFromEnquiryValidation = [
     .withMessage('Payment type is required')
     .isIn(['ONE_TIME', 'INSTALLMENT'])
     .withMessage('Payment type must be ONE_TIME or INSTALLMENT'),
+  body('paymentMethod')
+    .if(body('paymentType').equals('ONE_TIME'))
+    .notEmpty()
+    .withMessage('Payment method is required for ONE_TIME payment')
+    .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
+    .withMessage('Payment method must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
   body('totalFees')
     .notEmpty()
     .withMessage('Total fees is required')
