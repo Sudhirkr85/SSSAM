@@ -6,15 +6,23 @@ const { authMiddleware, roleMiddleware, validateRequest } = require('../middlewa
 const { ROLES } = require('../config/constants');
 const { registerValidation, loginValidation } = require('../validations');
 
-// POST /auth/register - Admin only
+// POST /auth/register - Public (no token required)
 router.post(
   '/register',
-  authMiddleware,
-  roleMiddleware(ROLES.ADMIN),
   registerValidation,
   validateRequest,
   authController.register
 );
+
+// // POST /auth/register - Admin only
+// router.post(
+//   '/register',
+//   authMiddleware,
+//   roleMiddleware(ROLES.ADMIN),
+//   registerValidation,
+//   validateRequest,
+//   authController.register
+// );
 
 // POST /auth/login - Public
 router.post(

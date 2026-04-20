@@ -7,17 +7,6 @@ class EnquiryService {
   async createEnquiry(data, user) {
     const isAdmin = user.role === ROLES.ADMIN;
 
-    // Check for duplicate mobile number
-    if (data.mobile) {
-      const existingEnquiry = await Enquiry.findOne({ mobile: data.mobile });
-      if (existingEnquiry) {
-        throw new AppError(
-          `Mobile number already registered. Student name: ${existingEnquiry.name}`,
-          400
-        );
-      }
-    }
-
     const enquiry = await Enquiry.create({
       ...data,
       createdBy: user.id,
@@ -342,17 +331,6 @@ class EnquiryService {
             email = email.replace(/\[|\]/g, '').trim();
           }
           if (!email || email === '') email = null;
-        }
-
-        // Check for duplicate mobile number in database
-        const existingEnquiry = await Enquiry.findOne({ mobile });
-        if (existingEnquiry) {
-          console.log(`[DEBUG] Row ${i + 1} skipped: Duplicate mobile - ${mobile}`);
-          errors.push({ 
-            row: i + 1, 
-            error: `Mobile number already registered. Student name: ${existingEnquiry.name}` 
-          });
-          continue;
         }
 
         console.log(`[DEBUG] Row ${i + 1} - Creating enquiry in DB...`);
