@@ -302,18 +302,44 @@ class EnquiryService {
     const created = [];
     const errors = [];
 
+    // Helper function to normalize field names (case-insensitive)
+    const getField = (data, ...possibleNames) => {
+      const keys = Object.keys(data);
+      for (const name of possibleNames) {
+        const key = keys.find(k => k.toLowerCase() === name.toLowerCase());
+        if (key) return data[key];
+      }
+      return undefined;
+    };
+
     for (let i = 0; i < dataArray.length; i++) {
       try {
         const data = dataArray[i];
-        console.log(`[DEBUG] Processing row ${i + 1}:`, { name: data.name, mobile: data.mobile, course: data.courseInterested });
 
-        if (!data.name || !data.mobile || !data.courseInterested) {
+        // Normalize fields (case-insensitive)
+        const name = getField(data, 'name');
+        const mobileRaw = getField(data, 'mobile');
+        const course = getField(data, 'course', 'courseinterested', 'courseInterested');
+        const emailRaw = getField(data, 'email');
+        const status = getField(data, 'status');
+
+        console.log(`[DEBUG] Processing row ${i + 1}:`, { name, mobile: mobileRaw, course });
+
+        if (!name || !mobileRaw || !course) {
           console.log(`[DEBUG] Row ${i + 1} skipped: Missing required fields`);
-          errors.push({ row: i + 1, error: 'Missing required fields (name, mobile, courseInterested)' });
+          errors.push({ row: i + 1, error: 'Missing required fields (name, mobile, course)' });
           continue;
         }
 
-        const mobile = String(data.mobile).replace(/\D/g, '');
+        // Handle mobile: remove +91 prefix if present, then remove all non-digits
+        let mobileStr = String(mobileRaw).trim();
+        if (mobileStr.startsWith('+91')) {
+          mobileStr = mobileStr.substring(3);
+        } else if (mobileStr.startsWith('91') && mobileStr.length === 12) {
+          mobileStr = mobileStr.substring(2);
+        }
+        const mobile = mobileStr.replace(/\D/g, '');
+
         if (mobile.length !== 10) {
           console.log(`[DEBUG] Row ${i + 1} skipped: Invalid mobile - ${mobile}`);
           errors.push({ row: i + 1, error: 'Invalid mobile number (must be 10 digits)' });
@@ -321,12 +347,13 @@ class EnquiryService {
         }
 
         // Clean email - extract from markdown links like [email](mailto:email) and remove empty strings
-        let email = data.email || null;
-        if (email) {
+        let email = null;
+        if (emailRaw) {
+          email = String(emailRaw).trim();
           // Extract email from markdown link format: [email](mailto:email) or just email
           const match = email.match(/\[?([^\]]+)\]?\(mailto:([^)]+)\)/);
           if (match) {
-            email = match[2]; // Use the actual email from mailto:
+            email = match[2];
           } else {
             email = email.replace(/\[|\]/g, '').trim();
           }
@@ -335,11 +362,11 @@ class EnquiryService {
 
         console.log(`[DEBUG] Row ${i + 1} - Creating enquiry in DB...`);
         const enquiry = await Enquiry.create({
-          name: data.name,
+          name: name.trim(),
           mobile,
           email,
-          courseInterested: data.courseInterested,
-          status: data.status || ENQUIRY_STATUSES.NEW,
+          courseInterested: course.trim(),
+          status: status || ENQUIRY_STATUSES.NEW,
           assignedTo: null,
           createdBy: user.id,
           notes: [],
