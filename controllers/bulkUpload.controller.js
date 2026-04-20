@@ -43,13 +43,14 @@ class BulkUploadController {
 
     console.log('[DEBUG] Calling enquiryService.bulkUpload...');
     const result = await enquiryService.bulkUpload(data, req.user);
-    console.log('[DEBUG] bulkUpload result:', { created: result.created, errorCount: result.errors.length });
+    console.log('[DEBUG] bulkUpload result:', { successCount: result.successCount, failedCount: result.failedCount });
 
     return successResponse(res, {
-      uploaded: result.created,
+      successCount: result.successCount,
+      failedCount: result.failedCount,
       errors: result.errors,
       totalRows: data.length
-    }, `Successfully created ${result.created} enquiries`, 201);
+    }, `Successfully created ${result.successCount} enquiries`, 201);
   });
 
   _parseCSV(buffer) {
