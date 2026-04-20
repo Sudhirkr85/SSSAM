@@ -62,6 +62,10 @@ const admissionSchema = new mongoose.Schema({
     enum: ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'],
     default: null
   },
+  nextDueDate: {
+    type: Date,
+    default: null
+  },
   counselorId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

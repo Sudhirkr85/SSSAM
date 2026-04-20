@@ -22,6 +22,11 @@ const paymentSchema = new mongoose.Schema({
     required: [true, 'Payment date is required'],
     default: Date.now
   },
+  installmentIndex: {
+    type: Number,
+    default: null,
+    min: [0, 'Installment index must be a positive integer']
+  },
   nextInstallmentDate: {
     type: Date,
     default: null

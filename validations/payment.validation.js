@@ -19,6 +19,18 @@ const createPaymentValidation = [
     .isIn(['CASH', 'CARD', 'ONLINE', 'UPI', 'CHEQUE'])
     .withMessage('Payment mode must be CASH, CARD, ONLINE, UPI, or CHEQUE'),
 
+  body('paymentDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Please provide a valid payment date')
+    .toDate(),
+
+  body('installmentIndex')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Installment index must be a positive integer')
+    .toInt(),
+
   body('nextInstallmentDate')
     .optional()
     .isISO8601()
@@ -36,6 +48,12 @@ const updatePaymentValidation = [
     .optional()
     .isIn(['CASH', 'CARD', 'ONLINE', 'UPI', 'CHEQUE'])
     .withMessage('Payment mode must be CASH, CARD, ONLINE, UPI, or CHEQUE'),
+
+  body('installmentIndex')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Installment index must be a positive integer')
+    .toInt(),
 
   body('nextInstallmentDate')
     .optional()

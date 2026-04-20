@@ -16,7 +16,7 @@ class PaymentService {
   }
 
   async createPayment(paymentData, user) {
-    const { admissionId, amount, paymentMode, nextInstallmentDate } = paymentData;
+    const { admissionId, amount, paymentMode, paymentDate, installmentIndex, nextInstallmentDate } = paymentData;
 
     if (amount <= 0) {
       throw new AppError('Payment amount must be greater than 0', 400);
@@ -80,12 +80,22 @@ class PaymentService {
       admissionId,
       amount,
       paymentMode: paymentMode || 'CASH',
-      paymentDate: new Date(),
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      installmentIndex: installmentIndex !== undefined ? installmentIndex : null,
       nextInstallmentDate: nextInstallmentDate || null,
       createdBy: user.id
     });
 
     admission.paidAmount += amount;
+
+    // Update nextDueDate if nextInstallmentDate is provided
+    if (nextInstallmentDate) {
+      admission.nextDueDate = new Date(nextInstallmentDate);
+    } else if (installmentIndex !== undefined && admission.installments[installmentIndex + 1]) {
+      // Auto-set nextDueDate to next installment's due date if available
+      admission.nextDueDate = admission.installments[installmentIndex + 1].dueDate;
+    }
+
     await admission.save();
 
     // Build timeline entries
@@ -111,6 +121,27 @@ class PaymentService {
           });
         }
       });
+
+      // Add specific installment payment timeline entry if installmentIndex provided
+      if (installmentIndex !== undefined && installmentIndex >= 0) {
+        const targetInstallment = admission.installments[installmentIndex];
+        if (targetInstallment) {
+          timelineEntries.push({
+            type: TIMELINE_TYPES.INSTALLMENT_PAID,
+            message: `Payment made for Installment ${installmentIndex + 1} of ₹${amount} by ${user.name}`,
+            user: user.id,
+            userName: user.name,
+            timestamp: new Date(),
+            metadata: {
+              installmentIndex,
+              installmentNumber: installmentIndex + 1,
+              amount,
+              dueDate: targetInstallment.dueDate,
+              status: targetInstallment.status
+            }
+          });
+        }
+      }
     }
 
     if (admission.pendingAmount === 0) {
