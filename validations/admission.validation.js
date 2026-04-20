@@ -49,6 +49,21 @@ const setPaymentPlanValidation = [
     .withMessage('Payment method is required for ONE_TIME payment')
     .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
     .withMessage('Payment method must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
+  body('paymentDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Please provide a valid payment date')
+    .toDate(),
+  body('initialPayment')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Initial payment must be a positive number'),
+  body('initialPaymentMode')
+    .if(body('initialPayment').custom((value) => value > 0))
+    .notEmpty()
+    .withMessage('Payment mode is required when initial payment is provided')
+    .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
+    .withMessage('Payment mode must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
   body('installments')
     .optional()
     .isArray()
@@ -90,6 +105,21 @@ const createAdmissionFromEnquiryValidation = [
     .withMessage('Total fees is required')
     .isFloat({ min: 0 })
     .withMessage('Total fees must be a positive number'),
+  body('paymentDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Please provide a valid payment date')
+    .toDate(),
+  body('initialPayment')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Initial payment must be a positive number'),
+  body('initialPaymentMode')
+    .if(body('initialPayment').custom((value) => value > 0))
+    .notEmpty()
+    .withMessage('Payment mode is required when initial payment is provided')
+    .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
+    .withMessage('Payment mode must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
   body('installments')
     .if(body('paymentType').equals('INSTALLMENT'))
     .notEmpty()

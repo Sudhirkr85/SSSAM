@@ -44,6 +44,7 @@ const TIMELINE_TYPES = {
   CONVERTED: 'converted',
   PAYMENT: 'payment',
   PAYMENT_UPDATED: 'payment_updated',
+  PAYMENT_RECEIVED: 'payment_received',
   LOCKED: 'locked',
   FEES_UPDATED: 'fees_updated',
   PAYMENT_PLAN_SET: 'payment_plan_set',
