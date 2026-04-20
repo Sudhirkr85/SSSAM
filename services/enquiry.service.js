@@ -144,18 +144,6 @@ class EnquiryService {
       throw new AppError('Follow-up date is required when status is FOLLOW_UP', 400);
     }
 
-    // Status flow validation
-    if (status && status !== enquiry.status) {
-      const allowedTransitions = STATUS_FLOW[enquiry.status] || [];
-      if (!allowedTransitions.includes(status)) {
-        throw new AppError(
-          `Invalid status transition from "${enquiry.status}" to "${status}". ` +
-          `Allowed: ${allowedTransitions.join(', ') || 'none'}`,
-          400
-        );
-      }
-    }
-
     // Store original values before any modifications
     const previousStatus = enquiry.status;
     const previousAssignedTo = enquiry.assignedTo;
