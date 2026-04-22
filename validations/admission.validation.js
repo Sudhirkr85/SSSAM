@@ -96,14 +96,14 @@ const setPaymentPlanValidation = [
   body('paymentType')
     .notEmpty()
     .withMessage('Payment type is required')
-    .isIn(['ONE_TIME', 'INSTALLMENT'])
-    .withMessage('Payment type must be ONE_TIME or INSTALLMENT'),
+    .isIn(Object.values(PAYMENT_TYPES))
+    .withMessage(`Payment type must be one of: ${Object.values(PAYMENT_TYPES).join(', ')}`),
   body('paymentMethod')
-    .if(body('paymentType').equals('ONE_TIME'))
+    .if(body('paymentType').equals(PAYMENT_TYPES.ONE_TIME))
     .notEmpty()
     .withMessage('Payment method is required for ONE_TIME payment')
-    .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
-    .withMessage('Payment method must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
+    .isIn(Object.values(PAYMENT_MODES))
+    .withMessage(`Payment method must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
   body('paymentDate')
     .optional()
     .isISO8601()
@@ -111,14 +111,14 @@ const setPaymentPlanValidation = [
     .toDate(),
   body('initialPayment')
     .optional()
-    .isFloat({ min: 0 })
-    .withMessage('Initial payment must be a positive number'),
+    .isFloat({ min: 1 })
+    .withMessage('Initial payment must be greater than 0'),
   body('initialPaymentMode')
     .if(body('initialPayment').custom((value) => value > 0))
     .notEmpty()
     .withMessage('Payment mode is required when initial payment is provided')
-    .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
-    .withMessage('Payment mode must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
+    .isIn(Object.values(PAYMENT_MODES))
+    .withMessage(`Payment mode must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
   body('installments')
     .optional()
     .isArray()
@@ -126,13 +126,13 @@ const setPaymentPlanValidation = [
     .custom(validateInstallmentDates)
     .withMessage('Invalid installment dates'),
   body('installments.*.amount')
-    .if(body('paymentType').equals('INSTALLMENT'))
+    .if(body('paymentType').equals(PAYMENT_TYPES.INSTALLMENT))
     .notEmpty()
     .withMessage('Installment amount is required')
     .isFloat({ min: 1 })
-    .withMessage('Installment amount must be a positive number'),
+    .withMessage('Installment amount must be greater than 0'),
   body('installments.*.dueDate')
-    .if(body('paymentType').equals('INSTALLMENT'))
+    .if(body('paymentType').equals(PAYMENT_TYPES.INSTALLMENT))
     .notEmpty()
     .withMessage('Installment due date is required')
     .isISO8601()
@@ -149,36 +149,46 @@ const createAdmissionFromEnquiryValidation = [
   body('paymentType')
     .notEmpty()
     .withMessage('Payment type is required')
-    .isIn(['ONE_TIME', 'INSTALLMENT'])
-    .withMessage('Payment type must be ONE_TIME or INSTALLMENT'),
+    .isIn(Object.values(PAYMENT_TYPES))
+    .withMessage(`Payment type must be one of: ${Object.values(PAYMENT_TYPES).join(', ')}`),
   body('paymentMethod')
-    .if(body('paymentType').equals('ONE_TIME'))
+    .if(body('paymentType').equals(PAYMENT_TYPES.ONE_TIME))
     .notEmpty()
     .withMessage('Payment method is required for ONE_TIME payment')
-    .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
-    .withMessage('Payment method must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
+    .isIn(Object.values(PAYMENT_MODES))
+    .withMessage(`Payment method must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
   body('totalFees')
     .notEmpty()
     .withMessage('Total fees is required')
+    .isFloat({ min: 1 })
+    .withMessage('Total fees must be greater than 0'),
+  body('registrationAmount')
+    .notEmpty()
+    .withMessage('Registration amount is required')
+    .isFloat({ min: 1 })
+    .withMessage('Registration amount must be greater than 0'),
+  body('remainingAmount')
+    .notEmpty()
+    .withMessage('Remaining amount is required')
     .isFloat({ min: 0 })
-    .withMessage('Total fees must be a positive number'),
+    .withMessage('Remaining amount cannot be negative'),
   body('paymentDate')
     .optional()
     .isISO8601()
-    .withMessage('Please provide a valid payment date')
+    .withMessage('Please provide a valid date')
     .toDate(),
   body('initialPayment')
     .optional()
-    .isFloat({ min: 0 })
-    .withMessage('Initial payment must be a positive number'),
+    .isFloat({ min: 1 })
+    .withMessage('Initial payment must be greater than 0'),
   body('initialPaymentMode')
     .if(body('initialPayment').custom((value) => value > 0))
     .notEmpty()
     .withMessage('Payment mode is required when initial payment is provided')
-    .isIn(['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE'])
-    .withMessage('Payment mode must be CASH, CARD, UPI, BANK_TRANSFER, or CHEQUE'),
+    .isIn(Object.values(PAYMENT_MODES))
+    .withMessage(`Payment mode must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
   body('installments')
-    .if(body('paymentType').equals('INSTALLMENT'))
+    .if(body('paymentType').equals(PAYMENT_TYPES.INSTALLMENT))
     .notEmpty()
     .withMessage('Installments are required for INSTALLMENT payment type')
     .isArray({ min: 1 })
@@ -186,17 +196,17 @@ const createAdmissionFromEnquiryValidation = [
     .custom(validateInstallmentDates)
     .withMessage('Invalid installment dates'),
   body('installments')
-    .if((value, { req }) => req.body.paymentType === 'ONE_TIME' && value !== undefined)
+    .if((value, { req }) => req.body.paymentType === PAYMENT_TYPES.ONE_TIME && value !== undefined)
     .isArray({ max: 0 })
     .withMessage('ONE_TIME payment type should not have installments'),
   body('installments.*.amount')
-    .if(body('paymentType').equals('INSTALLMENT'))
+    .if(body('paymentType').equals(PAYMENT_TYPES.INSTALLMENT))
     .notEmpty()
     .withMessage('Installment amount is required')
     .isFloat({ min: 1 })
-    .withMessage('Installment amount must be a positive number'),
+    .withMessage('Installment amount must be greater than 0'),
   body('installments.*.dueDate')
-    .if(body('paymentType').equals('INSTALLMENT'))
+    .if(body('paymentType').equals(PAYMENT_TYPES.INSTALLMENT))
     .notEmpty()
     .withMessage('Installment due date is required')
     .isISO8601()

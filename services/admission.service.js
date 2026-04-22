@@ -1,16 +1,21 @@
 const mongoose = require('mongoose');
 const { Admission, Enquiry, Payment } = require('../models');
 const AppError = require('../utils/AppError');
-const { ENQUIRY_STATUSES, PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES, ADMISSION_STATUSES, TIMELINE_TYPES, ROLES } = require('../config/constants');
+const { ENQUIRY_STATUSES, PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES, ADMISSION_STATUSES, ROLES } = require('../config/constants');
 
 class AdmissionService {
-  // Helper to add timeline entry with automatic capping at 15 items
-  async _addTimelineEntry(enquiryId, entry) {
+  // Helper to add statusHistory entry to enquiry
+  async _addStatusHistory(enquiryId, status, note, userId) {
     await Enquiry.findByIdAndUpdate(enquiryId, {
       $push: {
-        timeline: {
-          $each: [entry],
-          $slice: -15
+        statusHistory: {
+          $each: [{
+            status: status,
+            note: note,
+            changedBy: userId,
+            changedAt: new Date()
+          }],
+          $slice: -20
         }
       }
     });
@@ -43,7 +48,7 @@ class AdmissionService {
     return result;
   }
   async createAdmission(admissionData, user) {
-    const { enquiryId, totalFees = 0, admissionDate = new Date(), initialPayment = 0, initialPaymentMode = 'CASH' } = admissionData;
+    const { enquiryId, course, totalFees, registrationAmount, remainingAmount, paymentType, fullPaymentDueDate, initialPayment = 0, initialPaymentMode = 'CASH' } = admissionData;
 
     const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) {
@@ -57,10 +62,13 @@ class AdmissionService {
 
     const admission = await Admission.create({
       enquiryId,
-      course: enquiry.courseInterested,
+      course: course || enquiry.courseInterested,
       counselorId: user.id,
-      admissionDate,
       totalFees,
+      registrationAmount,
+      remainingAmount,
+      paymentType,
+      fullPaymentDueDate,
       status: ADMISSION_STATUSES.ACTIVE,
       isLocked: false
     });
@@ -78,40 +86,18 @@ class AdmissionService {
       });
     }
 
-    // Build timeline entries for enquiry conversion
-    const timelineEntries = [{
-      type: 'converted',
-      message: `Admission created and enquiry converted by ${user.name}`,
-      user: user.id,
-      userName: user.name,
-      timestamp: new Date()
-    }];
-
-    // Add assignment entry if enquiry was not previously assigned
-    if (!enquiry.assignedTo) {
-      timelineEntries.push({
-        type: TIMELINE_TYPES.ASSIGNED,
-        message: `Enquiry assigned to ${user.name} upon admission creation`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: {
-          field: 'assignedTo',
-          previousValue: null,
-          newValue: user.id
-        }
-      });
-    }
-
+    // Update enquiry status to CONVERTED with statusHistory
     await Enquiry.findByIdAndUpdate(enquiryId, {
       $set: {
         status: ENQUIRY_STATUSES.CONVERTED,
         assignedTo: user.id
       },
       $push: {
-        timeline: {
-          $each: timelineEntries,
-          $slice: -15
+        statusHistory: {
+          status: ENQUIRY_STATUSES.CONVERTED,
+          note: `Admission created by ${user.name}`,
+          changedBy: user.id,
+          changedAt: new Date()
         }
       }
     });
@@ -216,14 +202,7 @@ class AdmissionService {
     admission.status = ADMISSION_STATUSES.CANCELLED;
     await admission.save();
 
-    await this._addTimelineEntry(admission.enquiryId, {
-      type: 'status_change',
-      message: `Admission cancelled by ${user.name}`,
-      user: user.id,
-      userName: user.name,
-      timestamp: new Date(),
-      metadata: { previousStatus: ADMISSION_STATUSES.ACTIVE, newStatus: ADMISSION_STATUSES.CANCELLED }
-    });
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission cancelled by ${user.name}`, user.id);
 
     return await this.getAdmissionById(admissionId);
   }
@@ -255,14 +234,7 @@ class AdmissionService {
     admission.totalFees = Number(totalFees) || 0;
     await admission.save();
 
-    await this._addTimelineEntry(admission.enquiryId, {
-      type: 'fees_updated',
-      message: `Total fees updated from ₹${oldFees} to ₹${totalFees} by ${user.name}`,
-      user: user.id,
-      userName: user.name,
-      timestamp: new Date(),
-      metadata: { oldFees, newFees: totalFees }
-    });
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Total fees updated from ₹${oldFees} to ₹${totalFees}`, user.id);
 
     return await this.getAdmissionById(admissionId);
   }
@@ -286,13 +258,7 @@ class AdmissionService {
     admission.isLocked = true;
     await admission.save();
 
-    await this._addTimelineEntry(admission.enquiryId, {
-      type: 'locked',
-      message: `Admission locked by ${user.name}`,
-      user: user.id,
-      userName: user.name,
-      timestamp: new Date()
-    });
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission locked by ${user.name}`, user.id);
 
     return await this.getAdmissionById(admissionId);
   }
@@ -349,22 +315,7 @@ class AdmissionService {
         createdBy: user.id
       });
 
-      await this._addTimelineEntry(admission.enquiryId, {
-        type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
-        message: `Full payment of ₹${admission.totalFees} collected via ${paymentMethod} by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { paymentType: PAYMENT_TYPES.ONE_TIME, paymentMethod, totalAmount: admission.totalFees }
-      });
-
-      await this._addTimelineEntry(admission.enquiryId, {
-        type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
-        message: `Admission locked after full payment by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date()
-      });
+      await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Full payment of ₹${admission.totalFees} collected via ${paymentMethod}`, user.id);
     } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
       if (!installments || installments.length === 0) {
         throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
@@ -416,63 +367,11 @@ class AdmissionService {
         });
       }
 
-      // Build all timeline entries
-      const timelineEntries = [{
-        type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
-        message: initialPayment > 0
-          ? `Payment plan set to INSTALLMENT with initial payment of ₹${initialPayment} by ${user.name}`
-          : `Payment plan set to INSTALLMENT by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: {
-          paymentType: PAYMENT_TYPES.INSTALLMENT,
-          initialPayment,
-          installmentCount: installments.length,
-          installments: formattedInstallments.map(i => ({ amount: i.amount, dueDate: i.dueDate }))
-        }
-      }];
-
-      if (initialPayment > 0 && !isFullyPaid) {
-        timelineEntries.push({
-          type: TIMELINE_TYPES.PAYMENT_RECEIVED,
-          message: `Initial payment of ₹${initialPayment} received via ${initialPaymentMode} by ${user.name}`,
-          user: user.id,
-          userName: user.name,
-          timestamp: new Date(),
-          metadata: { amount: initialPayment, paymentMode: initialPaymentMode }
-        });
-      }
-
-      if (isFullyPaid) {
-        timelineEntries.push({
-          type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
-          message: `Admission locked after full payment by ${user.name}`,
-          user: user.id,
-          userName: user.name,
-          timestamp: new Date()
-        });
-      }
-
-      formattedInstallments.forEach((inst, index) => {
-        timelineEntries.push({
-          type: TIMELINE_TYPES.INSTALLMENT_CREATED,
-          message: `Installment ${index + 1} of ₹${inst.amount} created by ${user.name}`,
-          user: user.id,
-          userName: user.name,
-          timestamp: new Date(),
-          metadata: { installmentIndex: index, amount: inst.amount, dueDate: inst.dueDate }
-        });
-      });
-
-      await Enquiry.findByIdAndUpdate(admission.enquiryId, {
-        $push: {
-          timeline: {
-            $each: timelineEntries,
-            $slice: -15
-          }
-        }
-      });
+      // Add statusHistory entry for payment plan set
+      const note = initialPayment > 0
+        ? `Payment plan set to INSTALLMENT with initial payment of ₹${initialPayment}`
+        : `Payment plan set to INSTALLMENT`;
+      await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, note, user.id);
     }
 
     return await this.getAdmissionById(admissionId);
@@ -582,75 +481,23 @@ class AdmissionService {
       });
     }
 
-    const timelineEntries = [{
-      type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
-      message: isPaidAndLocked
-        ? `Full payment of ₹${numericTotalFees} collected by ${user.name}`
-        : (numericInitialPayment > 0
-            ? `Payment plan updated with initial payment of ₹${numericInitialPayment} by ${user.name}`
-            : `Payment plan updated by ${user.name}`),
-      user: user.id,
-      userName: user.name,
-      timestamp: new Date(),
-      metadata: {
-        paymentType,
-        paymentMethod: isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null),
-        totalFees: numericTotalFees,
-        initialPayment: numericInitialPayment,
-        installmentCount: formattedInstallments.length,
-        isLocked: isPaidAndLocked
-      }
-    }];
-
-    if (isPaidAndLocked) {
-      timelineEntries.push({
-        type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
-        message: `Admission locked after full payment by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date()
-      });
-    }
-
-    if (numericInitialPayment > 0 && !isPaidAndLocked) {
-      timelineEntries.push({
-        type: TIMELINE_TYPES.PAYMENT_RECEIVED,
-        message: `Initial payment of ₹${numericInitialPayment} received via ${initialPaymentMode} by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { amount: numericInitialPayment, paymentMode: initialPaymentMode }
-      });
-    }
+    // Add statusHistory entry
+    const note = isPaidAndLocked
+      ? `Full payment of ₹${numericTotalFees} collected`
+      : (numericInitialPayment > 0
+          ? `Payment plan updated with initial payment of ₹${numericInitialPayment}`
+          : `Payment plan updated`);
+    await this._addStatusHistory(existingAdmission.enquiryId, ENQUIRY_STATUSES.CONVERTED, note, user.id);
 
     // Get enquiry to check if it needs assignment
     const enquiry = await Enquiry.findById(existingAdmission.enquiryId);
 
-    // Add assignment entry if enquiry was not previously assigned
+    // Update enquiry assignment if needed
     if (enquiry && !enquiry.assignedTo) {
-      timelineEntries.push({
-        type: TIMELINE_TYPES.ASSIGNED,
-        message: `Enquiry assigned to ${user.name} upon admission update`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: {
-          field: 'assignedTo',
-          previousValue: null,
-          newValue: user.id
-        }
+      await Enquiry.findByIdAndUpdate(existingAdmission.enquiryId, {
+        $set: { assignedTo: user.id }
       });
     }
-
-    await Enquiry.findByIdAndUpdate(existingAdmission.enquiryId, {
-      $set: enquiry && !enquiry.assignedTo ? { assignedTo: user.id } : {},
-      $push: {
-        timeline: {
-          $each: timelineEntries,
-          $slice: -15
-        }
-      }
-    });
 
     return {
       admission: await this.getAdmissionById(existingAdmission._id),
@@ -660,7 +507,7 @@ class AdmissionService {
   }
 
   async _createNewAdmission(enquiry, paymentData, user) {
-    const { paymentType, paymentMethod, installments = [], totalFees, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
+    const { paymentType, paymentMethod, installments = [], totalFees, registrationAmount, remainingAmount, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
 
     if (!Object.values(PAYMENT_TYPES).includes(paymentType)) {
       throw new AppError(`Invalid payment type. Must be ${PAYMENT_TYPES.ONE_TIME} or ${PAYMENT_TYPES.INSTALLMENT}`, 400);
@@ -677,6 +524,8 @@ class AdmissionService {
     // Convert to numbers at function level for use across all payment types
     const numericInitialPayment = Number(initialPayment) || 0;
     const numericTotalFees = Number(totalFees) || 0;
+    const numericRegistrationAmount = Number(registrationAmount) || numericInitialPayment;
+    const numericRemainingAmount = Number(remainingAmount) || (numericTotalFees - numericRegistrationAmount);
 
     if (paymentType === PAYMENT_TYPES.ONE_TIME) {
       if (installments.length > 0) {
@@ -722,8 +571,9 @@ class AdmissionService {
       enquiryId: enquiry._id,
       course: enquiry.courseInterested,
       counselorId: user.id,
-      admissionDate: new Date(),
       totalFees: numericTotalFees,
+      registrationAmount: numericRegistrationAmount,
+      remainingAmount: numericRemainingAmount,
       status: ADMISSION_STATUSES.ACTIVE,
       paymentType,
       paymentMethod: isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null),
@@ -754,88 +604,19 @@ class AdmissionService {
       });
     }
 
-    // Build all timeline entries
-    const timelineEntries = [{
-      type: TIMELINE_TYPES.CONVERTED,
-      message: isPaidAndLocked
-        ? `Admission created with full payment of ₹${numericTotalFees} by ${user.name}`
-        : (numericInitialPayment > 0
-            ? `Admission created with initial payment of ₹${numericInitialPayment} by ${user.name}`
-            : `Admission created with payment plan by ${user.name}`),
-      user: user.id,
-      userName: user.name,
-      timestamp: new Date(),
-      metadata: {
-        admissionId: admission._id,
-        paymentType,
-        totalFees: numericTotalFees,
-        initialPayment: numericInitialPayment,
-        installmentCount: formattedInstallments.length,
-        isLocked: isPaidAndLocked
-      }
-    }];
+    // Add statusHistory entry
+    const note = isPaidAndLocked
+      ? `Admission created with full payment of ₹${numericTotalFees}`
+      : (numericInitialPayment > 0
+          ? `Admission created with initial payment of ₹${numericInitialPayment}`
+          : `Admission created with payment plan`);
+    await this._addStatusHistory(enquiry._id, ENQUIRY_STATUSES.CONVERTED, note, user.id);
 
-    if (isPaidAndLocked) {
-      timelineEntries.push({
-        type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
-        message: `Admission locked after full payment by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date()
-      });
-    }
-
-    if (numericInitialPayment > 0 && !isPaidAndLocked) {
-      timelineEntries.push({
-        type: TIMELINE_TYPES.PAYMENT_RECEIVED,
-        message: `Initial payment of ₹${numericInitialPayment} received via ${initialPaymentMode} by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { amount: numericInitialPayment, paymentMode: initialPaymentMode }
-      });
-    }
-
-    if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
-      formattedInstallments.forEach((inst, index) => {
-        timelineEntries.push({
-          type: TIMELINE_TYPES.INSTALLMENT_CREATED,
-          message: `Installment ${index + 1} of ₹${inst.amount} created by ${user.name}`,
-          user: user.id,
-          userName: user.name,
-          timestamp: new Date(),
-          metadata: { installmentIndex: index, amount: inst.amount, dueDate: inst.dueDate }
-        });
-      });
-    }
-
-    // Auto-convert enquiry status, assign to user, and add timeline entries
-    // Add assignment entry if enquiry was not previously assigned
-    if (!enquiry.assignedTo) {
-      timelineEntries.push({
-        type: TIMELINE_TYPES.ASSIGNED,
-        message: `Enquiry assigned to ${user.name} upon admission creation`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: {
-          field: 'assignedTo',
-          previousValue: null,
-          newValue: user.id
-        }
-      });
-    }
-
+    // Auto-convert enquiry status and assign to user
     await Enquiry.findByIdAndUpdate(enquiry._id, {
       $set: {
         status: ENQUIRY_STATUSES.CONVERTED,
         assignedTo: user.id
-      },
-      $push: {
-        timeline: {
-          $each: timelineEntries,
-          $slice: -15
-        }
       }
     });
 
