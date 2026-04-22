@@ -47,10 +47,6 @@ const admissionSchema = new mongoose.Schema({
     required: [true, 'Registration amount is required'],
     min: [1, 'Registration amount must be greater than 0']
   },
-  remainingAmount: {
-    type: Number,
-    required: true
-  },
   paymentType: {
     type: String,
     enum: Object.values(PAYMENT_TYPES),
@@ -115,6 +111,14 @@ const admissionSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: [500, 'Write-off reason cannot exceed 500 characters']
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  deletedAt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

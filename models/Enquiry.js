@@ -108,6 +108,14 @@ const enquirySchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  deletedAt: {
+    type: Date,
+    default: null
   }
 });
 
@@ -116,21 +124,20 @@ enquirySchema.pre('save', function (next) {
     this.updatedAt = Date.now();
   }
 
-  // Keep only last 20 status history entries
-  if (this.statusHistory && this.statusHistory.length > 20) {
-    this.statusHistory = this.statusHistory.slice(-20);
+  // Keep only last 50 status history entries
+  if (this.statusHistory && this.statusHistory.length > 50) {
+    this.statusHistory = this.statusHistory.slice(-50);
   }
 
   next();
 });
 
 enquirySchema.index({ name: 'text', mobile: 'text', email: 'text' });
+enquirySchema.index({ mobile: 1 });
 enquirySchema.index({ status: 1 });
 enquirySchema.index({ assignedTo: 1 });
-enquirySchema.index({ createdAt: -1 });
-enquirySchema.index({ createdBy: 1 });
-enquirySchema.index({ status: 1, assignedTo: 1 });
 enquirySchema.index({ followUpDate: 1 });
+enquirySchema.index({ createdAt: -1 });
 
 enquirySchema.virtual('isUnassigned').get(function () {
   return this.assignedTo === null;

@@ -4,6 +4,33 @@ const AppError = require('../utils/AppError');
 const { PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES, ENQUIRY_STATUSES, ROLES } = require('../config/constants');
 
 class PaymentService {
+  // Helper method to execute operations within a transaction
+  async withTransaction(operations) {
+    const session = await mongoose.startSession();
+    let result;
+    
+    try {
+      // Try to use transactions
+      result = await session.withTransaction(async () => {
+        return await operations(session);
+      });
+    } catch (error) {
+      // If transactions fail (no replica set), execute without transaction
+      if (error.message && error.message.includes('transaction')) {
+        session.endSession();
+        result = await operations();
+      } else {
+        throw error;
+      }
+    } finally {
+      if (session) {
+        session.endSession();
+      }
+    }
+    
+    return result;
+  }
+
   _checkIfLocked(admission) {
     if (admission.isLocked) {
       throw new AppError('Cannot modify a locked admission', 403);
@@ -64,15 +91,80 @@ class PaymentService {
     const paymentType = type || PAYMENT_RECORD_TYPES.INSTALLMENT;
     const paymentStatus = status || PAYMENT_STATUSES.SUCCESS;
 
-    // Validate amount based on payment type
+    // Use transaction for refund operations to ensure atomicity
     if (paymentType === PAYMENT_RECORD_TYPES.REFUND) {
-      if (amount <= 0) {
-        throw new AppError('Refund amount must be greater than 0', 400);
-      }
-    } else {
-      if (amount <= 0) {
-        throw new AppError('Payment amount must be greater than 0', 400);
-      }
+      return await this.withTransaction(async (session) => {
+        const admission = await Admission.findById(admissionId).session(session);
+        if (!admission) {
+          throw new AppError('Admission not found', 404);
+        }
+
+        // Validate original payment exists if provided
+        if (originalPaymentId) {
+          const originalPayment = await Payment.findById(originalPaymentId).session(session);
+          if (!originalPayment) {
+            throw new AppError('Original payment not found', 404);
+          }
+          
+          // Validate refund amount doesn't exceed original payment
+          const originalAmount = originalPayment.amount;
+          if (amount > originalAmount) {
+            throw new AppError(`Refund amount (₹${amount}) exceeds original payment amount (₹${originalAmount})`, 400);
+          }
+        }
+
+        // Validate amount
+        if (amount <= 0) {
+          throw new AppError('Refund amount must be greater than 0', 400);
+        }
+
+        // Calculate total paid to validate refund
+        const totalPaid = await this._calculateTotalPaid(admissionId);
+        if (amount > totalPaid) {
+          throw new AppError(`Refund amount exceeds total paid. Total paid: ₹${totalPaid}`, 400);
+        }
+
+        const payment = await Payment.create([{
+          admissionId,
+          amount,
+          paymentMode: paymentMode || 'CASH',
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          type: paymentType,
+          status: paymentStatus,
+          note: note || null,
+          refundAmount: refundAmount || null,
+          refundReason: refundReason || null,
+          originalPaymentId: originalPaymentId || null,
+          isPartialRefund: isPartialRefund || false,
+          createdBy: user.id
+        }], { session });
+
+        const paymentDoc = payment[0];
+
+        // Add statusHistory entry to enquiry
+        await Enquiry.findByIdAndUpdate(admission.enquiryId, {
+          $push: {
+            statusHistory: {
+              status: ENQUIRY_STATUSES.CONVERTED,
+              note: `Refund of ₹${amount} processed`,
+              changedBy: user.id,
+              changedAt: new Date()
+            }
+          }
+        }, { session });
+
+        return await Payment.findById(paymentDoc._id)
+          .populate('createdBy', 'name email')
+          .populate({
+            path: 'admissionId',
+            populate: { path: 'enquiryId', select: 'name' }
+          });
+      });
+    }
+
+    // Non-refund payments - existing logic
+    if (amount <= 0) {
+      throw new AppError('Payment amount must be greater than 0', 400);
     }
 
     const admission = await Admission.findById(admissionId);
@@ -81,8 +173,7 @@ class PaymentService {
     }
 
     // Only block non-refund payments for cancelled admissions
-    // Refunds are always allowed even if admission is cancelled
-    if (admission.status === 'cancelled' && paymentType !== PAYMENT_RECORD_TYPES.REFUND) {
+    if (admission.status === 'cancelled') {
       throw new AppError('Cannot process payments for a cancelled admission', 400);
     }
 
@@ -92,30 +183,20 @@ class PaymentService {
     const totalPaid = await this._calculateTotalPaid(admissionId);
     const remaining = admission.totalFees - totalPaid;
 
-    // For non-refund payments, validate against overpayment
-    if (paymentType !== PAYMENT_RECORD_TYPES.REFUND) {
-      if (amount > remaining) {
-        throw new AppError(`Payment amount exceeds remaining amount. Remaining: ₹${remaining}`, 400);
-      }
-
-      if (remaining === 0) {
-        throw new AppError('Admission is already fully paid', 400);
-      }
+    // Validate against overpayment
+    if (amount > remaining) {
+      throw new AppError(`Payment amount exceeds remaining amount. Remaining: ₹${remaining}`, 400);
     }
 
-    // For refunds, validate that refund amount doesn't exceed total paid
-    if (paymentType === PAYMENT_RECORD_TYPES.REFUND) {
-      if (amount > totalPaid) {
-        throw new AppError(`Refund amount exceeds total paid. Total paid: ₹${totalPaid}`, 400);
-      }
+    if (remaining === 0) {
+      throw new AppError('Admission is already fully paid', 400);
     }
 
     let remainingAmount = amount;
     let installmentPayments = [];
 
-    // Only apply to installments for non-refund, success payments
-    if (paymentType !== PAYMENT_RECORD_TYPES.REFUND &&
-        paymentStatus === PAYMENT_STATUSES.SUCCESS &&
+    // Only apply to installments for success payments
+    if (paymentStatus === PAYMENT_STATUSES.SUCCESS &&
         admission.paymentType === PAYMENT_TYPES.INSTALLMENT &&
         admission.installments.length > 0) {
       // Handle specific installment payment if installmentIndex is provided
@@ -149,7 +230,7 @@ class PaymentService {
           newStatus: targetInstallment.status
         });
       } else if (installmentIndex === -1) {
-        // Registration fee - don't apply to any installment, just track as separate payment
+        // Registration fee - don't apply to any installment
         remainingAmount = 0;
         installmentPayments.push({
           isRegistrationFee: true,
@@ -212,7 +293,6 @@ class PaymentService {
     if (nextInstallmentDate) {
       admission.nextDueDate = new Date(nextInstallmentDate);
     } else if (installmentIndex !== undefined && installmentIndex >= 0 && admission.installments[installmentIndex + 1]) {
-      // Auto-set nextDueDate to next installment's due date if available
       admission.nextDueDate = admission.installments[installmentIndex + 1].dueDate;
     }
 
@@ -226,9 +306,7 @@ class PaymentService {
 
     // Add statusHistory entry to enquiry
     const newRemaining = admission.totalFees - newTotalPaid;
-    const statusNote = paymentType === PAYMENT_RECORD_TYPES.REFUND
-      ? `Refund of ₹${amount} processed`
-      : `Payment of ₹${amount} received. Remaining: ₹${newRemaining}`;
+    const statusNote = `Payment of ₹${amount} received. Remaining: ₹${newRemaining}`;
 
     await Enquiry.findByIdAndUpdate(admission.enquiryId, {
       $push: {
@@ -250,12 +328,12 @@ class PaymentService {
   }
 
   async getPaymentsByAdmission(admissionId) {
-    const admission = await Admission.findById(admissionId);
+    const admission = await Admission.findOne({ _id: admissionId, isDeleted: false });
     if (!admission) {
       throw new AppError('Admission not found', 404);
     }
 
-    const payments = await Payment.find({ admissionId })
+    const payments = await Payment.find({ admissionId, isDeleted: false })
       .populate('createdBy', 'name email')
       .sort({ paymentDate: -1 });
 
@@ -263,7 +341,7 @@ class PaymentService {
   }
 
   async getPaymentById(id) {
-    const payment = await Payment.findById(id)
+    const payment = await Payment.findOne({ _id: id, isDeleted: false })
       .populate('createdBy', 'name email')
       .populate({
         path: 'admissionId',
@@ -278,12 +356,12 @@ class PaymentService {
   }
 
   async updatePayment(paymentId, updateData, user) {
-    const payment = await Payment.findById(paymentId);
+    const payment = await Payment.findOne({ _id: paymentId, isDeleted: false });
     if (!payment) {
       throw new AppError('Payment not found', 404);
     }
 
-    const admission = await Admission.findById(payment.admissionId);
+    const admission = await Admission.findOne({ _id: payment.admissionId, isDeleted: false });
 
     // Block payment modifications for locked admissions (except for status changes by admin)
     if (admission.isLocked && user.role !== ROLES.ADMIN) {
@@ -368,44 +446,31 @@ class PaymentService {
     const { page = 1, limit = 10, admissionId, startDate, endDate } = queryParams;
     const skip = (page - 1) * limit;
 
-    // Build filter
-    const filter = {};
-    if (admissionId) {
-      filter.admissionId = admissionId;
-    }
+    const filter = { isDeleted: false };
+    if (admissionId) filter.admissionId = admissionId;
     if (startDate || endDate) {
       filter.paymentDate = {};
-      if (startDate) {
-        filter.paymentDate.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filter.paymentDate.$lte = new Date(endDate);
-      }
+      if (startDate) filter.paymentDate.$gte = new Date(startDate);
+      if (endDate) filter.paymentDate.$lte = new Date(endDate);
     }
 
     const [payments, totalCount] = await Promise.all([
       Payment.find(filter)
         .populate('createdBy', 'name email')
-        .populate({
-          path: 'admissionId',
-          populate: { path: 'enquiryId', select: 'name mobile courseInterested' }
-        })
         .sort({ paymentDate: -1 })
         .skip(skip)
-        .limit(parseInt(limit)),
+        .limit(limit),
       Payment.countDocuments(filter)
     ]);
-
-    const totalPages = Math.ceil(totalCount / limit);
 
     return {
       payments,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         totalCount,
-        totalPages,
-        hasNextPage: page < totalPages,
+        totalPages: Math.ceil(totalCount / limit),
+        hasNextPage: page < Math.ceil(totalCount / limit),
         hasPrevPage: page > 1
       }
     };
@@ -416,6 +481,7 @@ class PaymentService {
     today.setHours(0, 0, 0, 0);
 
     const admissions = await Admission.find({
+      isDeleted: false,
       paymentType: 'INSTALLMENT',
       installments: { $exists: true, $ne: [] }
     });

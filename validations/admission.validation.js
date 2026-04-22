@@ -55,11 +55,6 @@ const createAdmissionValidation = [
     .withMessage('Registration amount is required')
     .isFloat({ min: 1 })
     .withMessage('Registration amount must be greater than 0'),
-  body('remainingAmount')
-    .notEmpty()
-    .withMessage('Remaining amount is required')
-    .isFloat({ min: 0 })
-    .withMessage('Remaining amount cannot be negative'),
   body('paymentType')
     .notEmpty()
     .withMessage('Payment type is required')
@@ -167,11 +162,6 @@ const createAdmissionFromEnquiryValidation = [
     .withMessage('Registration amount is required')
     .isFloat({ min: 1 })
     .withMessage('Registration amount must be greater than 0'),
-  body('remainingAmount')
-    .notEmpty()
-    .withMessage('Remaining amount is required')
-    .isFloat({ min: 0 })
-    .withMessage('Remaining amount cannot be negative'),
   body('paymentDate')
     .optional()
     .isISO8601()

@@ -92,14 +92,22 @@ const paymentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  deletedAt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true
 });
 
 paymentSchema.index({ admissionId: 1 });
-paymentSchema.index({ originalPaymentId: 1 });
 paymentSchema.index({ paymentDate: -1 });
+paymentSchema.index({ originalPaymentId: 1 });
 paymentSchema.index({ createdBy: 1 });
 paymentSchema.index({ createdAt: -1 });
 paymentSchema.index({ type: 1 });

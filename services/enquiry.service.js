@@ -23,15 +23,22 @@ class EnquiryService {
   }
 
   async getEnquiryById(id) {
-    const enquiry = await Enquiry.findById(id)
+    const enquiry = await Enquiry.findOne({ _id: id, isDeleted: false })
       .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email');
 
-    if (!enquiry) throw new AppError('Enquiry not found', 404);
-    
+    if (!enquiry) {
+      throw new AppError('Enquiry not found', 404);
+    }
+
     // Convert to object to add computed fields
     const enquiryObj = enquiry.toObject();
     enquiryObj.isUnassigned = !enquiryObj.assignedTo;
+    
+    // Compute isOverdue flag
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    enquiryObj.isOverdue = enquiryObj.followUpDate && new Date(enquiryObj.followUpDate) < today;
     
     // Remove duplicate 'id' virtual (already have '_id')
     delete enquiryObj.id;
@@ -59,12 +66,15 @@ class EnquiryService {
     ]);
 
     const admissionSet = new Set(admissionIds.map(id => id.toString()));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     return {
       enquiries: enquiries.map(e => ({
         ...e,
         isUnassigned: !e.assignedTo,
-        hasAdmission: admissionSet.has(e._id.toString())
+        hasAdmission: admissionSet.has(e._id.toString()),
+        isOverdue: e.followUpDate && new Date(e.followUpDate) < today
       })),
       pagination: {
         page,
@@ -83,7 +93,7 @@ class EnquiryService {
     const limit = Math.min(parseInt(query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
     const skip = (page - 1) * limit;
 
-    const filter = {};
+    const filter = { isDeleted: false };
     if (query.status) filter.status = query.status;
     if (query.search) {
       filter.$or = [
@@ -106,12 +116,15 @@ class EnquiryService {
     ]);
 
     const admissionSet = new Set(admissionIds.map(id => id.toString()));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     return {
       enquiries: enquiries.map(e => ({
         ...e,
         isUnassigned: !e.assignedTo,
-        hasAdmission: admissionSet.has(e._id.toString())
+        hasAdmission: admissionSet.has(e._id.toString()),
+        isOverdue: e.followUpDate && new Date(e.followUpDate) < today
       })),
       pagination: {
         page,
@@ -128,7 +141,7 @@ class EnquiryService {
   async updateEnquiry(enquiryId, data, user) {
     const { status, note, followUpDate } = data;
 
-    const enquiry = await Enquiry.findById(enquiryId);
+    const enquiry = await Enquiry.findOne({ _id: enquiryId, isDeleted: false });
     if (!enquiry) throw new AppError('Enquiry not found', 404);
 
     // Access control
@@ -302,20 +315,34 @@ class EnquiryService {
   }
 
   async deleteEnquiry(id, user) {
-    const enquiry = await Enquiry.findById(id);
-    if (!enquiry) throw new AppError('Enquiry not found', 404);
-
-    if (enquiry.status === ENQUIRY_STATUSES.CONVERTED && user.role !== ROLES.ADMIN) {
-      throw new AppError('Converted enquiries can only be deleted by admin', 403);
+    // Counselors cannot delete records
+    if (user.role === ROLES.COUNSELOR) {
+      throw new AppError('Counselors are not authorized to delete records', 403);
     }
 
-    await Enquiry.findByIdAndDelete(id);
+    const enquiry = await Enquiry.findById(id);
+    if (!enquiry) {
+      throw new AppError('Enquiry not found', 404);
+    }
+
+    // Check if admission exists for this enquiry
+    const admission = await Admission.findOne({ enquiryId: id, isDeleted: false });
+    if (admission) {
+      throw new AppError('Cannot delete enquiry with associated admission', 400);
+    }
+
+    // Soft delete - mark as deleted instead of hard delete
+    await Enquiry.findByIdAndUpdate(id, {
+      isDeleted: true,
+      deletedAt: new Date()
+    });
+
     return { message: 'Enquiry deleted successfully' };
   }
 
   // Build filter with proper access control
   _buildFilter(query, user) {
-    const filter = {};
+    const filter = { isDeleted: false };
 
     // Access control: counselors can only see assigned + unassigned
     if (user.role === ROLES.COUNSELOR) {

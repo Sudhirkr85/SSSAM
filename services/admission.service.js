@@ -15,7 +15,7 @@ class AdmissionService {
             changedBy: userId,
             changedAt: new Date()
           }],
-          $slice: -20
+          $slice: -50
         }
       }
     });
@@ -48,61 +48,64 @@ class AdmissionService {
     return result;
   }
   async createAdmission(admissionData, user) {
-    const { enquiryId, course, totalFees, registrationAmount, remainingAmount, paymentType, fullPaymentDueDate, initialPayment = 0, initialPaymentMode = 'CASH' } = admissionData;
+    const { enquiryId, course, totalFees, registrationAmount, paymentType, fullPaymentDueDate, initialPayment = 0, initialPaymentMode = 'CASH' } = admissionData;
 
-    const enquiry = await Enquiry.findById(enquiryId);
-    if (!enquiry) {
-      throw new AppError('Enquiry not found', 404);
-    }
-
-    const existingAdmission = await Admission.findOne({ enquiryId });
-    if (existingAdmission) {
-      throw new AppError('Admission already exists for this enquiry', 400);
-    }
-
-    const admission = await Admission.create({
-      enquiryId,
-      course: course || enquiry.courseInterested,
-      counselorId: user.id,
-      totalFees,
-      registrationAmount,
-      remainingAmount,
-      paymentType,
-      fullPaymentDueDate,
-      status: ADMISSION_STATUSES.ACTIVE,
-      isLocked: false
-    });
-
-    // Create initial payment record if initialPayment > 0
-    if (initialPayment > 0) {
-      await Payment.create({
-        admissionId: admission._id,
-        amount: initialPayment,
-        paymentMode: initialPaymentMode,
-        paymentDate: new Date(),
-        type: PAYMENT_RECORD_TYPES.INITIAL,
-        status: PAYMENT_STATUSES.SUCCESS,
-        createdBy: user.id
-      });
-    }
-
-    // Update enquiry status to CONVERTED with statusHistory
-    await Enquiry.findByIdAndUpdate(enquiryId, {
-      $set: {
-        status: ENQUIRY_STATUSES.CONVERTED,
-        assignedTo: user.id
-      },
-      $push: {
-        statusHistory: {
-          status: ENQUIRY_STATUSES.CONVERTED,
-          note: `Admission created by ${user.name}`,
-          changedBy: user.id,
-          changedAt: new Date()
-        }
+    return await this.withTransaction(async (session) => {
+      const enquiry = await Enquiry.findById(enquiryId).session(session);
+      if (!enquiry) {
+        throw new AppError('Enquiry not found', 404);
       }
-    });
 
-    return await this.getAdmissionById(admission._id);
+      const existingAdmission = await Admission.findOne({ enquiryId }).session(session);
+      if (existingAdmission) {
+        throw new AppError('Admission already exists for this enquiry', 400);
+      }
+
+      const admission = await Admission.create([{
+        enquiryId,
+        course: course || enquiry.courseInterested,
+        counselorId: user.id,
+        totalFees,
+        registrationAmount,
+        paymentType,
+        fullPaymentDueDate,
+        status: ADMISSION_STATUSES.ACTIVE,
+        isLocked: false
+      }], { session });
+
+      const admissionDoc = admission[0];
+
+      // Create initial payment record if initialPayment > 0
+      if (initialPayment > 0) {
+        await Payment.create([{
+          admissionId: admissionDoc._id,
+          amount: initialPayment,
+          paymentMode: initialPaymentMode,
+          paymentDate: new Date(),
+          type: PAYMENT_RECORD_TYPES.INITIAL,
+          status: PAYMENT_STATUSES.SUCCESS,
+          createdBy: user.id
+        }], { session });
+      }
+
+      // Update enquiry status to CONVERTED with statusHistory
+      await Enquiry.findByIdAndUpdate(enquiryId, {
+        $set: {
+          status: ENQUIRY_STATUSES.CONVERTED,
+          assignedTo: user.id
+        },
+        $push: {
+          statusHistory: {
+            status: ENQUIRY_STATUSES.CONVERTED,
+            note: 'Admission created by ' + user.name,
+            changedBy: user.id,
+            changedAt: new Date()
+          }
+        }
+      }, { session });
+
+      return await this.getAdmissionById(admissionDoc._id);
+    });
   }
 
   // Helper to calculate total paid dynamically from payments collection
@@ -148,7 +151,7 @@ class AdmissionService {
   }
 
   async getAdmissionById(id) {
-    const admission = await Admission.findById(id)
+    const admission = await Admission.findOne({ _id: id, isDeleted: false })
       .populate('enquiryId', 'name mobile')
       .populate('counselorId', 'name');
 
@@ -158,17 +161,20 @@ class AdmissionService {
 
     // Calculate total paid and remaining dynamically
     const totalPaid = await this._calculateTotalPaid(id);
-    const remaining = admission.totalFees - totalPaid;
+    const remainingAmount = admission.totalFees - totalPaid;
 
     return {
-      admission,
+      admission: {
+        ...admission.toObject(),
+        remainingAmount
+      },
       totalPaid,
-      remaining
+      remainingAmount
     };
   }
 
   async getAdmissionByEnquiryId(enquiryId) {
-    const admission = await Admission.findOne({ enquiryId })
+    const admission = await Admission.findOne({ enquiryId, isDeleted: false })
       .populate('enquiryId', 'name mobile')
       .populate('counselorId', 'name');
 
@@ -178,17 +184,25 @@ class AdmissionService {
 
     // Calculate total paid and remaining dynamically
     const totalPaid = await this._calculateTotalPaid(admission._id);
-    const remaining = admission.totalFees - totalPaid;
+    const remainingAmount = admission.totalFees - totalPaid;
 
     return {
-      admission,
+      admission: {
+        ...admission.toObject(),
+        remainingAmount
+      },
       totalPaid,
-      remaining
+      remainingAmount
     };
   }
 
   async cancelAdmission(admissionId, user) {
-    const admission = await Admission.findById(admissionId);
+    // Counselors cannot cancel admissions
+    if (user.role === ROLES.COUNSELOR) {
+      throw new AppError('Counselors are not authorized to cancel admissions', 403);
+    }
+
+    const admission = await Admission.findOne({ _id: admissionId, isDeleted: false });
 
     if (!admission) {
       throw new AppError('Admission not found', 404);
@@ -208,7 +222,7 @@ class AdmissionService {
   }
 
   async updateTotalFees(admissionId, totalFees, user) {
-    const admission = await Admission.findById(admissionId);
+    const admission = await Admission.findOne({ _id: admissionId, isDeleted: false });
 
     if (!admission) {
       throw new AppError('Admission not found', 404);
@@ -220,7 +234,7 @@ class AdmissionService {
     }
 
     // Check if any payments have been made - cannot change fees after payment
-    const existingPayments = await Payment.countDocuments({ admissionId: admission._id });
+    const existingPayments = await Payment.countDocuments({ admissionId: admission._id, isDeleted: false });
     if (existingPayments > 0) {
       throw new AppError('Cannot modify fees after payments have been made. Admission must remain consistent with payment records.', 400);
     }
@@ -239,8 +253,38 @@ class AdmissionService {
     return await this.getAdmissionById(admissionId);
   }
 
+  async writeOffAdmission(admissionId, writeOffAmount, writeOffReason, user) {
+    // Counselors cannot perform write-off
+    if (user.role === ROLES.COUNSELOR) {
+      throw new AppError('Counselors are not authorized to perform write-offs', 403);
+    }
+
+    const admission = await Admission.findOne({ _id: admissionId, isDeleted: false });
+
+    if (!admission) {
+      throw new AppError('Admission not found', 404);
+    }
+
+    if (admission.isDefaulted) {
+      throw new AppError('Admission is already marked as defaulted', 400);
+    }
+
+    if (!writeOffReason) {
+      throw new AppError('Write-off reason is required', 400);
+    }
+
+    admission.isDefaulted = true;
+    admission.writeOffAmount = Number(writeOffAmount) || 0;
+    admission.writeOffReason = writeOffReason;
+    await admission.save();
+
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission written off by ${user.name}. Reason: ${writeOffReason}`, user.id);
+
+    return await this.getAdmissionById(admissionId);
+  }
+
   async lockAdmission(admissionId, user) {
-    const admission = await Admission.findById(admissionId);
+    const admission = await Admission.findOne({ _id: admissionId, isDeleted: false });
 
     if (!admission) {
       throw new AppError('Admission not found', 404);
@@ -266,7 +310,7 @@ class AdmissionService {
   async setPaymentPlan(admissionId, paymentData, user) {
     const { paymentType, paymentMethod, installments = [], paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
 
-    const admission = await Admission.findById(admissionId);
+    const admission = await Admission.findOne({ _id: admissionId, isDeleted: false });
     if (!admission) {
       throw new AppError('Admission not found', 404);
     }
@@ -281,7 +325,7 @@ class AdmissionService {
     }
 
     // Check if any payments have been made dynamically
-    const existingPayments = await Payment.countDocuments({ admissionId: admission._id });
+    const existingPayments = await Payment.countDocuments({ admissionId: admission._id, isDeleted: false });
     if (existingPayments > 0) {
       throw new AppError('Cannot change payment plan after payments have been made', 400);
     }
@@ -507,7 +551,7 @@ class AdmissionService {
   }
 
   async _createNewAdmission(enquiry, paymentData, user) {
-    const { paymentType, paymentMethod, installments = [], totalFees, registrationAmount, remainingAmount, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
+    const { paymentType, paymentMethod, installments = [], totalFees, registrationAmount, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
 
     if (!Object.values(PAYMENT_TYPES).includes(paymentType)) {
       throw new AppError(`Invalid payment type. Must be ${PAYMENT_TYPES.ONE_TIME} or ${PAYMENT_TYPES.INSTALLMENT}`, 400);
@@ -525,7 +569,6 @@ class AdmissionService {
     const numericInitialPayment = Number(initialPayment) || 0;
     const numericTotalFees = Number(totalFees) || 0;
     const numericRegistrationAmount = Number(registrationAmount) || numericInitialPayment;
-    const numericRemainingAmount = Number(remainingAmount) || (numericTotalFees - numericRegistrationAmount);
 
     if (paymentType === PAYMENT_TYPES.ONE_TIME) {
       if (installments.length > 0) {
@@ -573,7 +616,6 @@ class AdmissionService {
       counselorId: user.id,
       totalFees: numericTotalFees,
       registrationAmount: numericRegistrationAmount,
-      remainingAmount: numericRemainingAmount,
       status: ADMISSION_STATUSES.ACTIVE,
       paymentType,
       paymentMethod: isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null),
@@ -630,13 +672,9 @@ class AdmissionService {
     const { page = 1, limit = 10, isLocked, status } = queryParams;
     const skip = (page - 1) * limit;
 
-    const filter = {};
-    if (isLocked !== undefined) {
-      filter.isLocked = isLocked === 'true' || isLocked === true;
-    }
-    if (status !== undefined) {
-      filter.status = status;
-    }
+    const filter = { isDeleted: false };
+    if (isLocked !== undefined) filter.isLocked = isLocked === 'true';
+    if (status) filter.status = status;
 
     const [admissions, totalCount] = await Promise.all([
       Admission.find(filter)
@@ -644,20 +682,31 @@ class AdmissionService {
         .populate('counselorId', 'name')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(parseInt(limit)),
+        .limit(limit)
+        .lean(),
       Admission.countDocuments(filter)
     ]);
 
-    const totalPages = Math.ceil(totalCount / limit);
+    // Calculate remaining amount for each admission dynamically
+    const admissionsWithRemaining = await Promise.all(
+      admissions.map(async (admission) => {
+        const totalPaid = await this._calculateTotalPaid(admission._id);
+        const remainingAmount = admission.totalFees - totalPaid;
+        return {
+          ...admission,
+          remainingAmount
+        };
+      })
+    );
 
     return {
-      admissions,
+      admissions: admissionsWithRemaining,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         totalCount,
-        totalPages,
-        hasNextPage: page < totalPages,
+        totalPages: Math.ceil(totalCount / limit),
+        hasNextPage: page < Math.ceil(totalCount / limit),
         hasPrevPage: page > 1
       }
     };
