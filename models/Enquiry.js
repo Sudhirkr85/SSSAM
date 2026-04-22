@@ -1,48 +1,22 @@
 const mongoose = require('mongoose');
 const { STATUS_LIST } = require('../config/constants');
 
-const timelineSchema = new mongoose.Schema({
-  type: {
-    type: String,
-    required: true,
-    enum: ['created', 'status_change', 'note', 'followup', 'converted', 'payment', 'locked', 'fees_updated', 'payment_plan_set', 'installment_created', 'installment_paid', 'full_payment_completed', 'assigned', 'payment_updated']
-  },
-  message: {
+const statusHistorySchema = new mongoose.Schema({
+  status: {
     type: String,
     required: true
   },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  userName: {
+  note: {
     type: String,
-    required: true
-  },
-  timestamp: {
-    type: Date,
-    default: Date.now
-  },
-  metadata: {
-    type: mongoose.Schema.Types.Mixed,
-    default: null
-  }
-}, { _id: true });
-
-const noteSchema = new mongoose.Schema({
-  text: {
-    type: String,
-    required: [true, 'Note text is required'],
     trim: true,
-    maxlength: [1000, 'Note cannot exceed 1000 characters']
+    maxlength: [500, 'Note cannot exceed 500 characters']
   },
-  addedBy: {
+  changedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  createdAt: {
+  changedAt: {
     type: Date,
     default: Date.now
   }
@@ -92,10 +66,19 @@ const enquirySchema = new mongoose.Schema({
   },
   followUpDate: {
     type: Date,
-    default: null
+    default: null,
+    validate: {
+      validator: function(value) {
+        if (value === null) return true;
+        return value >= new Date();
+      },
+      message: 'Follow-up date must be in the future'
+    }
   },
-  notes: [noteSchema],
-  timeline: [timelineSchema],
+  statusHistory: {
+    type: [statusHistorySchema],
+    default: []
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -111,10 +94,16 @@ const enquirySchema = new mongoose.Schema({
   }
 });
 
-enquirySchema.pre('save', function(next) {
+enquirySchema.pre('save', function (next) {
   if (this.isModified()) {
     this.updatedAt = Date.now();
   }
+
+  // Keep only last 20 status history entries
+  if (this.statusHistory && this.statusHistory.length > 20) {
+    this.statusHistory = this.statusHistory.slice(-20);
+  }
+
   next();
 });
 
@@ -124,19 +113,9 @@ enquirySchema.index({ assignedTo: 1 });
 enquirySchema.index({ createdAt: -1 });
 enquirySchema.index({ createdBy: 1 });
 enquirySchema.index({ status: 1, assignedTo: 1 });
-enquirySchema.index({ followUpDate: 1, status: 1 });
+enquirySchema.index({ followUpDate: 1 });
 
-// Partial index: only index followUpDate for active enquiries (not CONVERTED)
-enquirySchema.index(
-  { followUpDate: 1 },
-  {
-    partialFilterExpression: {
-      status: { $ne: 'CONVERTED' }
-    }
-  }
-);
-
-enquirySchema.virtual('isUnassigned').get(function() {
+enquirySchema.virtual('isUnassigned').get(function () {
   return this.assignedTo === null;
 });
 
