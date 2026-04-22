@@ -1,5 +1,37 @@
 const { body, param, query } = require('express-validator');
 
+// Helper to validate installment dates are in future and sequential
+const validateInstallmentDates = (value, { req }) => {
+  if (!value || !Array.isArray(value) || value.length === 0) {
+    return true;
+  }
+
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+
+  for (let i = 0; i < value.length; i++) {
+    const installment = value[i];
+    const dueDate = new Date(installment.dueDate);
+    dueDate.setHours(0, 0, 0, 0);
+
+    // Check if date is in the past
+    if (dueDate < now) {
+      throw new Error(`Installment ${i + 1} due date cannot be in the past`);
+    }
+
+    // Check if date is sequential (each installment must be after the previous)
+    if (i > 0) {
+      const prevDate = new Date(value[i - 1].dueDate);
+      prevDate.setHours(0, 0, 0, 0);
+      if (dueDate <= prevDate) {
+        throw new Error(`Installment ${i + 1} due date must be after installment ${i} due date`);
+      }
+    }
+  }
+
+  return true;
+};
+
 const createAdmissionValidation = [
   body('enquiryId')
     .notEmpty()
@@ -67,7 +99,9 @@ const setPaymentPlanValidation = [
   body('installments')
     .optional()
     .isArray()
-    .withMessage('Installments must be an array'),
+    .withMessage('Installments must be an array')
+    .custom(validateInstallmentDates)
+    .withMessage('Invalid installment dates'),
   body('installments.*.amount')
     .if(body('paymentType').equals('INSTALLMENT'))
     .notEmpty()
@@ -125,7 +159,9 @@ const createAdmissionFromEnquiryValidation = [
     .notEmpty()
     .withMessage('Installments are required for INSTALLMENT payment type')
     .isArray({ min: 1 })
-    .withMessage('At least one installment is required'),
+    .withMessage('At least one installment is required')
+    .custom(validateInstallmentDates)
+    .withMessage('Invalid installment dates'),
   body('installments')
     .if((value, { req }) => req.body.paymentType === 'ONE_TIME' && value !== undefined)
     .isArray({ max: 0 })

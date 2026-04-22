@@ -9,7 +9,7 @@ const paymentSchema = new mongoose.Schema({
   amount: {
     type: Number,
     required: [true, 'Payment amount is required'],
-    min: [1, 'Payment amount must be at least 1']
+    min: [0, 'Payment amount cannot be negative']
   },
   paymentMode: {
     type: String,
@@ -21,6 +21,23 @@ const paymentSchema = new mongoose.Schema({
     type: Date,
     required: [true, 'Payment date is required'],
     default: Date.now
+  },
+  type: {
+    type: String,
+    required: [true, 'Payment type is required'],
+    enum: ['initial', 'installment', 'full', 'refund'],
+    default: 'installment'
+  },
+  status: {
+    type: String,
+    required: [true, 'Payment status is required'],
+    enum: ['success', 'pending', 'failed'],
+    default: 'success'
+  },
+  note: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Note cannot exceed 500 characters']
   },
   installmentIndex: {
     type: Number,
@@ -44,5 +61,8 @@ paymentSchema.index({ admissionId: 1 });
 paymentSchema.index({ paymentDate: -1 });
 paymentSchema.index({ createdBy: 1 });
 paymentSchema.index({ createdAt: -1 });
+paymentSchema.index({ type: 1 });
+paymentSchema.index({ status: 1 });
+paymentSchema.index({ admissionId: 1, status: 1, type: 1 });
 
 module.exports = mongoose.model('Payment', paymentSchema);

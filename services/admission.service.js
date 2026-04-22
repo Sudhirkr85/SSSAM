@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { Admission, Enquiry, Payment } = require('../models');
 const AppError = require('../utils/AppError');
-const { ENQUIRY_STATUSES, PAYMENT_TYPES, TIMELINE_TYPES, ROLES } = require('../config/constants');
+const { ENQUIRY_STATUSES, PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES, ADMISSION_STATUSES, TIMELINE_TYPES, ROLES } = require('../config/constants');
 
 class AdmissionService {
   // Helper to add timeline entry with automatic capping at 15 items
@@ -43,7 +43,7 @@ class AdmissionService {
     return result;
   }
   async createAdmission(admissionData, user) {
-    const { enquiryId, totalFees = 0, admissionDate = new Date() } = admissionData;
+    const { enquiryId, totalFees = 0, admissionDate = new Date(), initialPayment = 0, initialPaymentMode = 'CASH' } = admissionData;
 
     const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) {
@@ -61,10 +61,22 @@ class AdmissionService {
       counselorId: user.id,
       admissionDate,
       totalFees,
-      paidAmount: 0,
-      pendingAmount: totalFees,
+      status: ADMISSION_STATUSES.ACTIVE,
       isLocked: false
     });
+
+    // Create initial payment record if initialPayment > 0
+    if (initialPayment > 0) {
+      await Payment.create({
+        admissionId: admission._id,
+        amount: initialPayment,
+        paymentMode: initialPaymentMode,
+        paymentDate: new Date(),
+        type: PAYMENT_RECORD_TYPES.INITIAL,
+        status: PAYMENT_STATUSES.SUCCESS,
+        createdBy: user.id
+      });
+    }
 
     await Enquiry.findByIdAndUpdate(enquiryId, {
       $set: { status: ENQUIRY_STATUSES.CONVERTED },
@@ -85,6 +97,48 @@ class AdmissionService {
     return await this.getAdmissionById(admission._id);
   }
 
+  // Helper to calculate total paid dynamically from payments collection
+  async _calculateTotalPaid(admissionId) {
+    const result = await Payment.aggregate([
+      {
+        $match: {
+          admissionId: new mongoose.Types.ObjectId(admissionId),
+          status: PAYMENT_STATUSES.SUCCESS,
+          type: { $ne: PAYMENT_RECORD_TYPES.REFUND }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalPaid: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    const totalPaid = result.length > 0 ? result[0].totalPaid : 0;
+
+    // Subtract refunds
+    const refundResult = await Payment.aggregate([
+      {
+        $match: {
+          admissionId: new mongoose.Types.ObjectId(admissionId),
+          status: PAYMENT_STATUSES.SUCCESS,
+          type: PAYMENT_RECORD_TYPES.REFUND
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalRefunded: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    const totalRefunded = refundResult.length > 0 ? refundResult[0].totalRefunded : 0;
+
+    return totalPaid - totalRefunded;
+  }
+
   async getAdmissionById(id) {
     const admission = await Admission.findById(id)
       .populate('enquiryId', 'name mobile')
@@ -94,7 +148,15 @@ class AdmissionService {
       throw new AppError('Admission not found', 404);
     }
 
-    return admission;
+    // Calculate total paid and remaining dynamically
+    const totalPaid = await this._calculateTotalPaid(id);
+    const remaining = admission.totalFees - totalPaid;
+
+    return {
+      admission,
+      totalPaid,
+      remaining
+    };
   }
 
   async getAdmissionByEnquiryId(enquiryId) {
@@ -106,7 +168,42 @@ class AdmissionService {
       throw new AppError('Admission not found for this enquiry', 404);
     }
 
-    return admission;
+    // Calculate total paid and remaining dynamically
+    const totalPaid = await this._calculateTotalPaid(admission._id);
+    const remaining = admission.totalFees - totalPaid;
+
+    return {
+      admission,
+      totalPaid,
+      remaining
+    };
+  }
+
+  async cancelAdmission(admissionId, user) {
+    const admission = await Admission.findById(admissionId);
+
+    if (!admission) {
+      throw new AppError('Admission not found', 404);
+    }
+
+    if (admission.status === ADMISSION_STATUSES.CANCELLED) {
+      throw new AppError('Admission is already cancelled', 400);
+    }
+
+    // Update status to cancelled - do NOT delete any data
+    admission.status = ADMISSION_STATUSES.CANCELLED;
+    await admission.save();
+
+    await this._addTimelineEntry(admission.enquiryId, {
+      type: 'status_change',
+      message: `Admission cancelled by ${user.name}`,
+      user: user.id,
+      userName: user.name,
+      timestamp: new Date(),
+      metadata: { previousStatus: ADMISSION_STATUSES.ACTIVE, newStatus: ADMISSION_STATUSES.CANCELLED }
+    });
+
+    return await this.getAdmissionById(admissionId);
   }
 
   async updateTotalFees(admissionId, totalFees, user) {
@@ -184,7 +281,9 @@ class AdmissionService {
       throw new AppError('Cannot modify a locked admission', 403);
     }
 
-    if (admission.paidAmount > 0) {
+    // Check if any payments have been made dynamically
+    const existingPayments = await Payment.countDocuments({ admissionId: admission._id });
+    if (existingPayments > 0) {
       throw new AppError('Cannot change payment plan after payments have been made', 400);
     }
 
@@ -203,8 +302,6 @@ class AdmissionService {
       admission.paymentType = PAYMENT_TYPES.ONE_TIME;
       admission.paymentMethod = paymentMethod;
       admission.installments = [];
-      admission.paidAmount = admission.totalFees;
-      admission.pendingAmount = 0;
       admission.isLocked = true;
       await admission.save();
 
@@ -214,6 +311,8 @@ class AdmissionService {
         amount: admission.totalFees,
         paymentMode: paymentMethod,
         paymentDate: actualPaymentDate,
+        type: PAYMENT_RECORD_TYPES.FULL,
+        status: PAYMENT_STATUSES.SUCCESS,
         createdBy: user.id
       });
 
@@ -223,7 +322,7 @@ class AdmissionService {
         user: user.id,
         userName: user.name,
         timestamp: new Date(),
-        metadata: { paymentType: PAYMENT_TYPES.ONE_TIME, paymentMethod, paidAmount: admission.totalFees }
+        metadata: { paymentType: PAYMENT_TYPES.ONE_TIME, paymentMethod, totalAmount: admission.totalFees }
       });
 
       await this._addTimelineEntry(admission.enquiryId, {
@@ -259,7 +358,6 @@ class AdmissionService {
       const formattedInstallments = installments.map(inst => ({
         amount: inst.amount,
         dueDate: new Date(inst.dueDate),
-        paidAmount: 0,
         status: 'PENDING'
       }));
 
@@ -268,8 +366,6 @@ class AdmissionService {
 
       admission.paymentType = PAYMENT_TYPES.INSTALLMENT;
       admission.installments = formattedInstallments;
-      admission.paidAmount = initialPayment;
-      admission.pendingAmount = admission.totalFees - initialPayment;
       admission.paymentMethod = initialPayment > 0 ? initialPaymentMode : null;
       admission.isLocked = isFullyPaid;
       await admission.save();
@@ -281,6 +377,8 @@ class AdmissionService {
           amount: initialPayment,
           paymentMode: initialPaymentMode,
           paymentDate: actualPaymentDate,
+          type: PAYMENT_RECORD_TYPES.INITIAL,
+          status: PAYMENT_STATUSES.SUCCESS,
           createdBy: user.id
         });
       }
@@ -357,8 +455,9 @@ class AdmissionService {
 
     const existingAdmission = await Admission.findOne({ enquiryId });
     if (existingAdmission) {
-      // If admission exists but not locked and payment data is provided, update it
-      if (!existingAdmission.isLocked && existingAdmission.paidAmount === 0) {
+      // If admission exists but not locked and no payments have been made, update it
+      const existingPayments = await Payment.countDocuments({ admissionId: existingAdmission._id });
+      if (!existingAdmission.isLocked && existingPayments === 0) {
         return await this._updateExistingAdmission(existingAdmission, paymentData, user);
       }
 
@@ -409,7 +508,6 @@ class AdmissionService {
       formattedInstallments = installments.map(inst => ({
         amount: inst.amount,
         dueDate: new Date(inst.dueDate),
-        paidAmount: 0,
         status: 'PENDING'
       }));
 
@@ -420,8 +518,6 @@ class AdmissionService {
     }
 
     existingAdmission.totalFees = totalFees;
-    existingAdmission.paidAmount = isPaidAndLocked ? totalFees : initialPayment;
-    existingAdmission.pendingAmount = isPaidAndLocked ? 0 : (totalFees - initialPayment);
     existingAdmission.paymentType = paymentType;
     existingAdmission.paymentMethod = isPaidAndLocked ? paymentMethod : (initialPayment > 0 ? initialPaymentMode : null);
     existingAdmission.installments = formattedInstallments;
@@ -435,6 +531,8 @@ class AdmissionService {
         amount: totalFees,
         paymentMode: paymentMethod,
         paymentDate: actualPaymentDate,
+        type: PAYMENT_RECORD_TYPES.FULL,
+        status: PAYMENT_STATUSES.SUCCESS,
         createdBy: user.id
       });
     } else if (initialPayment > 0) {
@@ -443,6 +541,8 @@ class AdmissionService {
         amount: initialPayment,
         paymentMode: initialPaymentMode,
         paymentDate: actualPaymentDate,
+        type: PAYMENT_RECORD_TYPES.INITIAL,
+        status: PAYMENT_STATUSES.SUCCESS,
         createdBy: user.id
       });
     }
@@ -550,7 +650,6 @@ class AdmissionService {
       formattedInstallments = installments.map(inst => ({
         amount: inst.amount,
         dueDate: new Date(inst.dueDate),
-        paidAmount: 0,
         status: 'PENDING'
       }));
 
@@ -566,8 +665,7 @@ class AdmissionService {
       counselorId: user.id,
       admissionDate: new Date(),
       totalFees,
-      paidAmount: isPaidAndLocked ? totalFees : initialPayment,
-      pendingAmount: isPaidAndLocked ? 0 : (totalFees - initialPayment),
+      status: ADMISSION_STATUSES.ACTIVE,
       paymentType,
       paymentMethod: isPaidAndLocked ? paymentMethod : (initialPayment > 0 ? initialPaymentMode : null),
       installments: formattedInstallments,
@@ -581,6 +679,8 @@ class AdmissionService {
         amount: totalFees,
         paymentMode: paymentMethod,
         paymentDate: actualPaymentDate,
+        type: PAYMENT_RECORD_TYPES.FULL,
+        status: PAYMENT_STATUSES.SUCCESS,
         createdBy: user.id
       });
     } else if (initialPayment > 0) {
@@ -589,6 +689,8 @@ class AdmissionService {
         amount: initialPayment,
         paymentMode: initialPaymentMode,
         paymentDate: actualPaymentDate,
+        type: PAYMENT_RECORD_TYPES.INITIAL,
+        status: PAYMENT_STATUSES.SUCCESS,
         createdBy: user.id
       });
     }
@@ -666,12 +768,15 @@ class AdmissionService {
   }
 
   async listAdmissions(queryParams) {
-    const { page = 1, limit = 10, isLocked } = queryParams;
+    const { page = 1, limit = 10, isLocked, status } = queryParams;
     const skip = (page - 1) * limit;
 
     const filter = {};
     if (isLocked !== undefined) {
       filter.isLocked = isLocked === 'true' || isLocked === true;
+    }
+    if (status !== undefined) {
+      filter.status = status;
     }
 
     const [admissions, totalCount] = await Promise.all([

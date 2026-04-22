@@ -36,6 +36,24 @@ const PAYMENT_TYPES = {
   INSTALLMENT: 'INSTALLMENT'
 };
 
+const PAYMENT_RECORD_TYPES = {
+  INITIAL: 'initial',
+  INSTALLMENT: 'installment',
+  FULL: 'full',
+  REFUND: 'refund'
+};
+
+const PAYMENT_STATUSES = {
+  SUCCESS: 'success',
+  PENDING: 'pending',
+  FAILED: 'failed'
+};
+
+const ADMISSION_STATUSES = {
+  ACTIVE: 'active',
+  CANCELLED: 'cancelled'
+};
+
 const TIMELINE_TYPES = {
   CREATED: 'created',
   STATUS_CHANGE: 'status_change',
@@ -75,5 +93,8 @@ module.exports = {
   JWT_CONFIG,
   BCRYPT_CONFIG,
   PAYMENT_TYPES,
+  PAYMENT_RECORD_TYPES,
+  PAYMENT_STATUSES,
+  ADMISSION_STATUSES,
   TIMELINE_TYPES
 };

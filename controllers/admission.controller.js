@@ -57,6 +57,11 @@ class AdmissionController {
     const statusCode = result.alreadyExists ? 200 : 201;
     return successResponse(res, { admission: result.admission, alreadyExists: result.alreadyExists }, message, statusCode);
   });
+
+  cancelAdmission = catchAsync(async (req, res) => {
+    const result = await admissionService.cancelAdmission(req.params.id, req.user);
+    return successResponse(res, result, 'Admission cancelled successfully');
+  });
 }
 
 module.exports = new AdmissionController();

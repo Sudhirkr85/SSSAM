@@ -10,14 +10,9 @@ const installmentSchema = new mongoose.Schema({
     type: Date,
     required: [true, 'Due date is required']
   },
-  paidAmount: {
-    type: Number,
-    default: 0,
-    min: [0, 'Paid amount cannot be negative']
-  },
   status: {
     type: String,
-    enum: ['PENDING', 'PARTIAL', 'PAID', 'OVERDUE'],
+    enum: ['PENDING', 'PAID', 'OVERDUE'],
     default: 'PENDING'
   }
 }, { _id: true });
@@ -41,17 +36,10 @@ const admissionSchema = new mongoose.Schema({
     required: [true, 'Total fees is required'],
     min: [0, 'Total fees cannot be negative']
   },
-  paidAmount: {
-    type: Number,
-    default: 0,
-    min: [0, 'Paid amount cannot be negative']
-  },
-  pendingAmount: {
-    type: Number,
-    default: function() {
-      return this.totalFees;
-    },
-    min: [0, 'Pending amount cannot be negative']
+  status: {
+    type: String,
+    enum: ['active', 'cancelled'],
+    default: 'active'
   },
   installments: {
     type: [installmentSchema],
@@ -79,13 +67,10 @@ const admissionSchema = new mongoose.Schema({
   timestamps: true
 });
 
-admissionSchema.pre('save', function(next) {
-  this.pendingAmount = this.totalFees - this.paidAmount;
-  next();
-});
 
 admissionSchema.index({ counselorId: 1 });
 admissionSchema.index({ createdAt: -1 });
 admissionSchema.index({ isLocked: 1 });
+admissionSchema.index({ status: 1 });
 
 module.exports = mongoose.model('Admission', admissionSchema);

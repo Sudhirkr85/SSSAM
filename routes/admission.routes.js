@@ -77,4 +77,12 @@ router.post(
   admissionController.createAdmissionFromEnquiry
 );
 
+router.patch(
+  '/:id/cancel',
+  roleMiddleware(ROLES.ADMIN),
+  admissionIdParamValidation,
+  validateRequest,
+  admissionController.cancelAdmission
+);
+
 module.exports = router;

@@ -1,6 +1,6 @@
 const { Payment, Admission, Enquiry } = require('../models');
 const AppError = require('../utils/AppError');
-const { PAYMENT_TYPES, TIMELINE_TYPES, ROLES } = require('../config/constants');
+const { PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES, TIMELINE_TYPES, ROLES } = require('../config/constants');
 
 class PaymentService {
   _checkIfLocked(admission) {
@@ -15,11 +15,63 @@ class PaymentService {
     }
   }
 
-  async createPayment(paymentData, user) {
-    const { admissionId, amount, paymentMode, paymentDate, installmentIndex, nextInstallmentDate } = paymentData;
+  // Helper to calculate total paid dynamically from payments collection
+  async _calculateTotalPaid(admissionId) {
+    const result = await Payment.aggregate([
+      {
+        $match: {
+          admissionId: new require('mongoose').Types.ObjectId(admissionId),
+          status: PAYMENT_STATUSES.SUCCESS,
+          type: { $ne: PAYMENT_RECORD_TYPES.REFUND }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalPaid: { $sum: '$amount' }
+        }
+      }
+    ]);
 
-    if (amount <= 0) {
-      throw new AppError('Payment amount must be greater than 0', 400);
+    const totalPaid = result.length > 0 ? result[0].totalPaid : 0;
+
+    // Subtract refunds
+    const refundResult = await Payment.aggregate([
+      {
+        $match: {
+          admissionId: new require('mongoose').Types.ObjectId(admissionId),
+          status: PAYMENT_STATUSES.SUCCESS,
+          type: PAYMENT_RECORD_TYPES.REFUND
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalRefunded: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    const totalRefunded = refundResult.length > 0 ? refundResult[0].totalRefunded : 0;
+
+    return totalPaid - totalRefunded;
+  }
+
+  async createPayment(paymentData, user) {
+    const { admissionId, amount, paymentMode, paymentDate, type, status, note, installmentIndex, nextInstallmentDate } = paymentData;
+
+    const paymentType = type || PAYMENT_RECORD_TYPES.INSTALLMENT;
+    const paymentStatus = status || PAYMENT_STATUSES.SUCCESS;
+
+    // Validate amount based on payment type
+    if (paymentType === PAYMENT_RECORD_TYPES.REFUND) {
+      if (amount <= 0) {
+        throw new AppError('Refund amount must be greater than 0', 400);
+      }
+    } else {
+      if (amount <= 0) {
+        throw new AppError('Payment amount must be greater than 0', 400);
+      }
     }
 
     const admission = await Admission.findById(admissionId);
@@ -27,52 +79,113 @@ class PaymentService {
       throw new AppError('Admission not found', 404);
     }
 
-    this._checkPaymentPermissions(admission, user);
-
-    if (amount > admission.pendingAmount) {
-      throw new AppError(`Payment amount exceeds pending amount. Pending: ₹${admission.pendingAmount}`, 400);
+    // Only block non-refund payments for cancelled admissions
+    // Refunds are always allowed even if admission is cancelled
+    if (admission.status === 'cancelled' && paymentType !== PAYMENT_RECORD_TYPES.REFUND) {
+      throw new AppError('Cannot process payments for a cancelled admission', 400);
     }
 
-    if (admission.pendingAmount === 0) {
-      throw new AppError('Admission is already fully paid', 400);
+    this._checkPaymentPermissions(admission, user);
+
+    // Calculate total paid dynamically
+    const totalPaid = await this._calculateTotalPaid(admissionId);
+    const remaining = admission.totalFees - totalPaid;
+
+    // For non-refund payments, validate against overpayment
+    if (paymentType !== PAYMENT_RECORD_TYPES.REFUND) {
+      if (amount > remaining) {
+        throw new AppError(`Payment amount exceeds remaining amount. Remaining: ₹${remaining}`, 400);
+      }
+
+      if (remaining === 0) {
+        throw new AppError('Admission is already fully paid', 400);
+      }
+    }
+
+    // For refunds, validate that refund amount doesn't exceed total paid
+    if (paymentType === PAYMENT_RECORD_TYPES.REFUND) {
+      if (amount > totalPaid) {
+        throw new AppError(`Refund amount exceeds total paid. Total paid: ₹${totalPaid}`, 400);
+      }
     }
 
     let remainingAmount = amount;
     let installmentPayments = [];
 
-    if (admission.paymentType === PAYMENT_TYPES.INSTALLMENT && admission.installments.length > 0) {
-      const pendingInstallments = admission.installments.filter(inst => inst.status === 'Pending');
+    // Only apply to installments for non-refund, success payments
+    if (paymentType !== PAYMENT_RECORD_TYPES.REFUND &&
+        paymentStatus === PAYMENT_STATUSES.SUCCESS &&
+        admission.paymentType === PAYMENT_TYPES.INSTALLMENT &&
+        admission.installments.length > 0) {
+      // Handle specific installment payment if installmentIndex is provided
+      if (installmentIndex !== undefined && installmentIndex >= 0) {
+        const targetInstallment = admission.installments[installmentIndex];
+        if (!targetInstallment) {
+          throw new AppError(`Installment at index ${installmentIndex} not found`, 400);
+        }
 
-      if (pendingInstallments.length === 0 && remainingAmount > 0) {
-        throw new AppError('No pending installments found but payment amount remains', 400);
-      }
+        if (targetInstallment.status === 'PAID') {
+          throw new AppError(`Installment ${installmentIndex + 1} is already fully paid`, 400);
+        }
 
-      for (const installment of admission.installments) {
-        if (remainingAmount <= 0) break;
-        if (installment.status === 'Paid') continue;
+        const dueAmount = targetInstallment.amount;
+        if (amount > dueAmount) {
+          throw new AppError(`Payment amount exceeds due amount for installment ${installmentIndex + 1}. Due: ₹${dueAmount}`, 400);
+        }
 
-        const dueAmount = installment.amount - installment.paidAmount;
-        const paymentForInstallment = Math.min(remainingAmount, dueAmount);
+        remainingAmount = 0;
 
-        installment.paidAmount += paymentForInstallment;
-        remainingAmount -= paymentForInstallment;
+        const previousStatus = targetInstallment.status;
+        if (amount >= targetInstallment.amount) {
+          targetInstallment.status = 'PAID';
+        }
 
         installmentPayments.push({
-          installmentId: installment._id,
-          amount: paymentForInstallment,
-          previousStatus: installment.status,
-          newStatus: installment.paidAmount >= installment.amount ? 'PAID' : (installment.paidAmount > 0 ? 'PARTIAL' : 'PENDING')
+          installmentId: targetInstallment._id,
+          installmentIndex: installmentIndex,
+          amount: amount,
+          previousStatus: previousStatus,
+          newStatus: targetInstallment.status
         });
+      } else if (installmentIndex === -1) {
+        // Registration fee - don't apply to any installment, just track as separate payment
+        remainingAmount = 0;
+        installmentPayments.push({
+          isRegistrationFee: true,
+          amount: amount
+        });
+      } else {
+        // Sequential payment logic
+        const pendingInstallments = admission.installments.filter(inst => inst.status !== 'PAID');
 
-        if (installment.paidAmount >= installment.amount) {
-          installment.status = 'PAID';
-        } else if (installment.paidAmount > 0) {
-          installment.status = 'PARTIAL';
+        if (pendingInstallments.length === 0 && remainingAmount > 0) {
+          throw new AppError('No pending installments found but payment amount remains', 400);
         }
-      }
 
-      if (remainingAmount > 0) {
-        throw new AppError('Payment amount exceeds total pending installment amounts', 400);
+        for (const installment of admission.installments) {
+          if (remainingAmount <= 0) break;
+          if (installment.status === 'PAID') continue;
+
+          const dueAmount = installment.amount;
+          const paymentForInstallment = Math.min(remainingAmount, dueAmount);
+
+          remainingAmount -= paymentForInstallment;
+
+          installmentPayments.push({
+            installmentId: installment._id,
+            amount: paymentForInstallment,
+            previousStatus: installment.status,
+            newStatus: paymentForInstallment >= installment.amount ? 'PAID' : installment.status
+          });
+
+          if (paymentForInstallment >= installment.amount) {
+            installment.status = 'PAID';
+          }
+        }
+
+        if (remainingAmount > 0) {
+          throw new AppError('Payment amount exceeds total pending installment amounts', 400);
+        }
       }
     }
 
@@ -81,36 +194,58 @@ class PaymentService {
       amount,
       paymentMode: paymentMode || 'CASH',
       paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      type: paymentType,
+      status: paymentStatus,
+      note: note || null,
       installmentIndex: installmentIndex !== undefined ? installmentIndex : null,
       nextInstallmentDate: nextInstallmentDate || null,
       createdBy: user.id
     });
 
-    admission.paidAmount += amount;
-
     // Update nextDueDate if nextInstallmentDate is provided
     if (nextInstallmentDate) {
       admission.nextDueDate = new Date(nextInstallmentDate);
-    } else if (installmentIndex !== undefined && admission.installments[installmentIndex + 1]) {
+    } else if (installmentIndex !== undefined && installmentIndex >= 0 && admission.installments[installmentIndex + 1]) {
       // Auto-set nextDueDate to next installment's due date if available
       admission.nextDueDate = admission.installments[installmentIndex + 1].dueDate;
+    }
+
+    // Check if fully paid and lock admission
+    const newTotalPaid = await this._calculateTotalPaid(admissionId);
+    if (newTotalPaid >= admission.totalFees && !admission.isLocked) {
+      admission.isLocked = true;
     }
 
     await admission.save();
 
     // Build timeline entries
+    const newRemaining = admission.totalFees - newTotalPaid;
     const timelineEntries = [{
-      type: TIMELINE_TYPES.PAYMENT,
-      message: `Payment of ₹${amount} received by ${user.name}`,
+      type: paymentType === PAYMENT_RECORD_TYPES.REFUND ? TIMELINE_TYPES.PAYMENT : TIMELINE_TYPES.PAYMENT,
+      message: paymentType === PAYMENT_RECORD_TYPES.REFUND
+        ? `Refund of ₹${amount} processed by ${user.name}`
+        : `Payment of ₹${amount} received by ${user.name}`,
       user: user.id,
       userName: user.name,
       timestamp: new Date(),
-      metadata: { amount, remainingPending: admission.pendingAmount }
+      metadata: { amount, type: paymentType, remaining: newRemaining }
     }];
 
     if (admission.paymentType === PAYMENT_TYPES.INSTALLMENT) {
       installmentPayments.forEach(instPayment => {
-        if (instPayment.newStatus === 'PAID' && instPayment.previousStatus !== 'PAID') {
+        // Handle registration fee payment (installmentIndex = -1)
+        if (instPayment.isRegistrationFee) {
+          timelineEntries.push({
+            type: TIMELINE_TYPES.PAYMENT_RECEIVED,
+            message: `Registration fee of ₹${instPayment.amount} received by ${user.name}`,
+            user: user.id,
+            userName: user.name,
+            timestamp: new Date(),
+            metadata: { amount: instPayment.amount, isRegistrationFee: true }
+          });
+        }
+        // Handle regular installment payments from sequential logic
+        else if (instPayment.newStatus === 'PAID' && instPayment.previousStatus !== 'PAID') {
           timelineEntries.push({
             type: TIMELINE_TYPES.INSTALLMENT_PAID,
             message: `Installment of ₹${instPayment.amount} marked as Paid by ${user.name}`,
@@ -122,7 +257,7 @@ class PaymentService {
         }
       });
 
-      // Add specific installment payment timeline entry if installmentIndex provided
+      // Add specific installment payment timeline entry if installmentIndex >= 0
       if (installmentIndex !== undefined && installmentIndex >= 0) {
         const targetInstallment = admission.installments[installmentIndex];
         if (targetInstallment) {
@@ -144,14 +279,14 @@ class PaymentService {
       }
     }
 
-    if (admission.pendingAmount === 0) {
+    if (newRemaining === 0 && paymentType !== PAYMENT_RECORD_TYPES.REFUND) {
       timelineEntries.push({
         type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
         message: `Full payment of ₹${admission.totalFees} completed by ${user.name}`,
         user: user.id,
         userName: user.name,
         timestamp: new Date(),
-        metadata: { totalFees: admission.totalFees, totalPayments: amount }
+        metadata: { totalFees: admission.totalFees, totalPayments: newTotalPaid }
       });
     }
 
@@ -213,18 +348,38 @@ class PaymentService {
 
     if (newAmount !== undefined && newAmount !== oldAmount) {
       const amountDiff = newAmount - oldAmount;
-      
-      if (admission.paidAmount + amountDiff > admission.totalFees) {
+
+      // Calculate current total paid dynamically
+      const currentTotalPaid = await this._calculateTotalPaid(payment.admissionId);
+      const newTotalPaid = currentTotalPaid + amountDiff;
+
+      if (newTotalPaid > admission.totalFees) {
         throw new AppError('Updated payment would exceed total fees', 400);
       }
 
-      admission.paidAmount += amountDiff;
-      await admission.save();
+      // Check if fully paid and lock/unlock accordingly
+      if (newTotalPaid >= admission.totalFees && !admission.isLocked) {
+        admission.isLocked = true;
+        await admission.save();
+      } else if (newTotalPaid < admission.totalFees && admission.isLocked) {
+        // Unlock if no longer fully paid
+        admission.isLocked = false;
+        await admission.save();
+      }
     }
 
     payment.amount = newAmount !== undefined ? newAmount : payment.amount;
     if (updateData.paymentMode !== undefined) {
       payment.paymentMode = updateData.paymentMode;
+    }
+    if (updateData.status !== undefined) {
+      payment.status = updateData.status;
+    }
+    if (updateData.type !== undefined) {
+      payment.type = updateData.type;
+    }
+    if (updateData.note !== undefined) {
+      payment.note = updateData.note;
     }
     if (updateData.nextInstallmentDate !== undefined) {
       payment.nextInstallmentDate = updateData.nextInstallmentDate;
