@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { STATUS_LIST } = require('../config/constants');
+const { STATUS_LIST, ENQUIRY_SOURCES } = require('../config/constants');
 
 const statusHistorySchema = new mongoose.Schema({
   status: {
@@ -53,6 +53,23 @@ const enquirySchema = new mongoose.Schema({
     required: [true, 'Course interested is required'],
     trim: true,
     maxlength: [100, 'Course cannot exceed 100 characters']
+  },
+  source: {
+    type: String,
+    enum: Object.values(ENQUIRY_SOURCES),
+    default: null
+  },
+  referenceName: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Reference name cannot exceed 100 characters'],
+    default: null
+  },
+  referenceContact: {
+    type: String,
+    trim: true,
+    match: [/^[0-9]{10}$/, 'Please provide a valid 10-digit mobile number'],
+    default: null
   },
   status: {
     type: String,

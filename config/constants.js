@@ -14,6 +14,16 @@ const ENQUIRY_STATUSES = {
   CONVERTED: 'CONVERTED'
 };
 
+const ENQUIRY_SOURCES = {
+  WEBSITE: 'website',
+  WALK_IN: 'walk_in',
+  REFERRAL: 'referral',
+  PHONE_CALL: 'phone_call',
+  SOCIAL_MEDIA: 'social_media',
+  ADVERTISEMENT: 'advertisement',
+  OTHER: 'other'
+};
+
 const STATUS_LIST = Object.values(ENQUIRY_STATUSES);
 
 const PAGINATION = {
@@ -90,6 +100,7 @@ const TIMELINE_TYPES = {
 module.exports = {
   ROLES,
   ENQUIRY_STATUSES,
+  ENQUIRY_SOURCES,
   STATUS_LIST,
   PAGINATION,
   JWT_CONFIG,

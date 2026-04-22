@@ -1,5 +1,5 @@
 const { body, query, param } = require('express-validator');
-const { STATUS_LIST, PAGINATION, ENQUIRY_STATUSES } = require('../config/constants');
+const { STATUS_LIST, PAGINATION, ENQUIRY_STATUSES, ENQUIRY_SOURCES } = require('../config/constants');
 
 const createEnquiryValidation = [
   body('name')
@@ -8,7 +8,7 @@ const createEnquiryValidation = [
     .withMessage('Name is required')
     .isLength({ max: 100 })
     .withMessage('Name cannot exceed 100 characters'),
-  
+
   body('email')
     .optional()
     .trim()
@@ -22,19 +22,41 @@ const createEnquiryValidation = [
     .withMessage('Mobile number is required')
     .matches(/^[0-9]{10}$/)
     .withMessage('Please provide a valid 10-digit mobile number'),
-  
+
   body('courseInterested')
     .trim()
     .notEmpty()
     .withMessage('Course interested is required')
     .isLength({ max: 100 })
     .withMessage('Course interested cannot exceed 100 characters'),
-  
+
+  body('source')
+    .optional()
+    .isIn(Object.values(ENQUIRY_SOURCES))
+    .withMessage(`Source must be one of: ${Object.values(ENQUIRY_SOURCES).join(', ')}`),
+
+  body('referenceName')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Reference name cannot exceed 100 characters'),
+
+  body('referenceContact')
+    .optional()
+    .trim()
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
+
+  body('assignedTo')
+    .optional()
+    .isMongoId()
+    .withMessage('Please provide a valid user ID'),
+
   body('status')
     .optional()
     .isIn(STATUS_LIST)
     .withMessage(`Status must be one of: ${STATUS_LIST.join(', ')}`),
-  
+
   body('followUpDate')
     .optional()
     .isISO8601()
@@ -53,8 +75,8 @@ const updateEnquiryValidation = [
     .trim()
     .notEmpty()
     .withMessage('Note cannot be empty if provided')
-    .isLength({ max: 1000 })
-    .withMessage('Note cannot exceed 1000 characters'),
+    .isLength({ max: 500 })
+    .withMessage('Note cannot exceed 500 characters'),
   
   body('followUpDate')
     .optional({ nullable: true })

@@ -1,5 +1,5 @@
 const { Enquiry, Admission } = require('../models');
-const { ROLES, PAGINATION, ENQUIRY_STATUSES, STATUS_FLOW } = require('../config/constants');
+const { ROLES, PAGINATION, ENQUIRY_STATUSES } = require('../config/constants');
 const { canModifyEnquiry } = require('../utils/accessControl');
 const AppError = require('../utils/AppError');
 
@@ -10,14 +10,12 @@ class EnquiryService {
     const enquiry = await Enquiry.create({
       ...data,
       createdBy: user.id,
-      assignedTo: isAdmin ? null : user.id,
-      notes: [],
-      timeline: [{
-        type: 'created',
-        message: `Enquiry created by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date()
+      assignedTo: data.assignedTo || (isAdmin ? null : user.id),
+      statusHistory: [{
+        status: data.status || 'NEW',
+        note: 'Enquiry created',
+        changedBy: user.id,
+        changedAt: new Date()
       }]
     });
 
@@ -166,122 +164,36 @@ class EnquiryService {
 
     let requiresPaymentSetup = false;
 
-    // Track all changes for timeline
-    const timelineEntries = [];
-
     // Build update operations
     const updateOps = { $set: { updatedAt: new Date() } };
-    const pushOps = {};
 
     // Add assignedTo to update if auto-assigned
     if (autoAssigned) {
       updateOps.$set.assignedTo = user.id;
     }
 
-    // Update status
+    // Update status - add to statusHistory
     if (status && status !== enquiry.status) {
       updateOps.$set.status = status;
-      timelineEntries.push({
-        type: 'status_change',
-        message: `Status changed from "${previousStatus}" to "${status}"`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { 
-          field: 'status',
-          previousValue: previousStatus, 
-          newValue: status 
-        }
-      });
+      updateOps.$push = updateOps.$push || {};
+      updateOps.$push.statusHistory = {
+        status: status,
+        note: note || '',
+        changedBy: user.id,
+        changedAt: new Date()
+      };
 
       if (status === ENQUIRY_STATUSES.CONVERTED) {
         requiresPaymentSetup = true;
       }
     }
 
-    // Add note
-    if (note) {
-      pushOps.notes = {
-        $each: [{
-          text: note,
-          addedBy: user.id,
-          createdAt: new Date()
-        }],
-        $slice: -15
-      };
-      timelineEntries.push({
-        type: 'note',
-        message: `Note added by ${user.name}: "${note}"`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { field: 'note', noteText: note }
-      });
+    // Update followUpDate
+    if (followUpDate !== undefined) {
+      updateOps.$set.followUpDate = followUpDate;
     }
 
-    // Update followUpDate with tracking
-    if (status === ENQUIRY_STATUSES.FOLLOW_UP) {
-      if (followUpDate !== undefined && followUpDate !== previousFollowUpDate) {
-        updateOps.$set.followUpDate = followUpDate;
-        timelineEntries.push({
-          type: 'followup',
-          message: `Follow-up date set to ${new Date(followUpDate).toLocaleDateString()}`,
-          user: user.id,
-          userName: user.name,
-          timestamp: new Date(),
-          metadata: { 
-            field: 'followUpDate', 
-            previousValue: previousFollowUpDate, 
-            newValue: followUpDate 
-          }
-        });
-      }
-    } else if (status && status !== ENQUIRY_STATUSES.FOLLOW_UP && previousFollowUpDate) {
-      updateOps.$set.followUpDate = null;
-      timelineEntries.push({
-        type: 'followup_cleared',
-        message: `Follow-up date cleared`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { 
-          field: 'followUpDate', 
-          previousValue: previousFollowUpDate, 
-          newValue: null 
-        }
-      });
-    }
-
-    // Track assignment changes (first time assignment)
-    if (autoAssigned) {
-      const assignedToName = user.role === ROLES.COUNSELOR ? user.name : 'Admin';
-      timelineEntries.push({
-        type: 'assigned',
-        message: `Enquiry assigned to ${assignedToName}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { 
-          field: 'assignedTo', 
-          previousValue: previousAssignedTo, 
-          newValue: enquiry.assignedTo 
-        }
-      });
-    }
-
-    // Add timeline entries to push operations
-    if (timelineEntries.length > 0) {
-      pushOps.timeline = {
-        $each: timelineEntries,
-        $slice: -15
-      };
-    }
-
-    // Add $push operations if any
-    if (Object.keys(pushOps).length > 0) {
-      updateOps.$push = pushOps;
-    }
-
+    // Apply updates
     await Enquiry.findByIdAndUpdate(enquiryId, updateOps);
 
     return {
@@ -365,13 +277,11 @@ class EnquiryService {
           status: status || ENQUIRY_STATUSES.NEW,
           assignedTo: null,
           createdBy: user.id,
-          notes: [],
-          timeline: [{
-            type: 'created',
-            message: `Enquiry created via bulk upload by ${user.name}`,
-            user: user.id,
-            userName: user.name,
-            timestamp: new Date()
+          statusHistory: [{
+            status: status || ENQUIRY_STATUSES.NEW,
+            note: 'Enquiry created via bulk upload',
+            changedBy: user.id,
+            changedAt: new Date()
           }]
         });
         console.log(`[DEBUG] Row ${i + 1} - Created enquiry ID:`, enquiry._id.toString());
