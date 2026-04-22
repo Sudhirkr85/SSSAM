@@ -1,4 +1,5 @@
 const { Payment, Admission, Enquiry } = require('../models');
+const mongoose = require('mongoose');
 const AppError = require('../utils/AppError');
 const { PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES, TIMELINE_TYPES, ROLES } = require('../config/constants');
 
@@ -20,7 +21,7 @@ class PaymentService {
     const result = await Payment.aggregate([
       {
         $match: {
-          admissionId: new require('mongoose').Types.ObjectId(admissionId),
+          admissionId: new mongoose.Types.ObjectId(admissionId),
           status: PAYMENT_STATUSES.SUCCESS,
           type: { $ne: PAYMENT_RECORD_TYPES.REFUND }
         }
@@ -39,7 +40,7 @@ class PaymentService {
     const refundResult = await Payment.aggregate([
       {
         $match: {
-          admissionId: new require('mongoose').Types.ObjectId(admissionId),
+          admissionId: new mongoose.Types.ObjectId(admissionId),
           status: PAYMENT_STATUSES.SUCCESS,
           type: PAYMENT_RECORD_TYPES.REFUND
         }
@@ -342,6 +343,12 @@ class PaymentService {
     }
 
     const admission = await Admission.findById(payment.admissionId);
+
+    // Block payment modifications for locked admissions (except for status changes by admin)
+    if (admission.isLocked && user.role !== ROLES.ADMIN) {
+      throw new AppError('Cannot modify payments for a locked admission. Please contact admin.', 403);
+    }
+
     this._checkPaymentPermissions(admission, user);
     const oldAmount = payment.amount;
     const newAmount = updateData.amount;

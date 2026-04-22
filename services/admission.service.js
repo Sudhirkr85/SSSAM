@@ -78,17 +78,39 @@ class AdmissionService {
       });
     }
 
+    // Build timeline entries for enquiry conversion
+    const timelineEntries = [{
+      type: 'converted',
+      message: `Admission created and enquiry converted by ${user.name}`,
+      user: user.id,
+      userName: user.name,
+      timestamp: new Date()
+    }];
+
+    // Add assignment entry if enquiry was not previously assigned
+    if (!enquiry.assignedTo) {
+      timelineEntries.push({
+        type: TIMELINE_TYPES.ASSIGNED,
+        message: `Enquiry assigned to ${user.name} upon admission creation`,
+        user: user.id,
+        userName: user.name,
+        timestamp: new Date(),
+        metadata: {
+          field: 'assignedTo',
+          previousValue: null,
+          newValue: user.id
+        }
+      });
+    }
+
     await Enquiry.findByIdAndUpdate(enquiryId, {
-      $set: { status: ENQUIRY_STATUSES.CONVERTED },
+      $set: {
+        status: ENQUIRY_STATUSES.CONVERTED,
+        assignedTo: user.id
+      },
       $push: {
         timeline: {
-          $each: [{
-            type: 'converted',
-            message: `Admission created and enquiry converted by ${user.name}`,
-            user: user.id,
-            userName: user.name,
-            timestamp: new Date()
-          }],
+          $each: timelineEntries,
           $slice: -15
         }
       }
@@ -213,13 +235,24 @@ class AdmissionService {
       throw new AppError('Admission not found', 404);
     }
 
+    // Check if admission is locked
+    if (admission.isLocked) {
+      throw new AppError('Cannot modify fees for a locked admission', 403);
+    }
+
+    // Check if any payments have been made - cannot change fees after payment
+    const existingPayments = await Payment.countDocuments({ admissionId: admission._id });
+    if (existingPayments > 0) {
+      throw new AppError('Cannot modify fees after payments have been made. Admission must remain consistent with payment records.', 400);
+    }
+
     // If admin and no counselor assigned, assign admin as counselor
     if (user.role === ROLES.ADMIN && !admission.counselorId) {
       admission.counselorId = user.id;
     }
 
     const oldFees = admission.totalFees;
-    admission.totalFees = totalFees;
+    admission.totalFees = Number(totalFees) || 0;
     await admission.save();
 
     await this._addTimelineEntry(admission.enquiryId, {
@@ -487,12 +520,14 @@ class AdmissionService {
         throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
       }
 
-      const totalInstallmentAmount = installments.reduce((sum, inst) => sum + inst.amount, 0);
-      const totalPlanned = initialPayment + totalInstallmentAmount;
+      const totalInstallmentAmount = installments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
+      const numericInitialPayment = Number(initialPayment) || 0;
+      const numericTotalFees = Number(totalFees) || 0;
+      const totalPlanned = numericInitialPayment + totalInstallmentAmount;
 
-      if (totalPlanned !== totalFees) {
+      if (totalPlanned !== numericTotalFees) {
         throw new AppError(
-          `Initial payment (₹${initialPayment}) + Installments total (₹${totalInstallmentAmount}) must equal total fees (₹${totalFees})`,
+          `Initial payment (₹${numericInitialPayment}) + Installments total (₹${totalInstallmentAmount}) must equal total fees (₹${numericTotalFees})`,
           400
         );
       }
@@ -512,14 +547,14 @@ class AdmissionService {
       }));
 
       // If initial payment equals total fees, treat as fully paid
-      if (initialPayment === totalFees) {
+      if (numericInitialPayment === numericTotalFees) {
         isPaidAndLocked = true;
       }
     }
 
-    existingAdmission.totalFees = totalFees;
+    existingAdmission.totalFees = numericTotalFees;
     existingAdmission.paymentType = paymentType;
-    existingAdmission.paymentMethod = isPaidAndLocked ? paymentMethod : (initialPayment > 0 ? initialPaymentMode : null);
+    existingAdmission.paymentMethod = isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null);
     existingAdmission.installments = formattedInstallments;
     existingAdmission.isLocked = isPaidAndLocked;
     await existingAdmission.save();
@@ -528,17 +563,17 @@ class AdmissionService {
     if (isPaidAndLocked) {
       await Payment.create({
         admissionId: existingAdmission._id,
-        amount: totalFees,
+        amount: numericTotalFees,
         paymentMode: paymentMethod,
         paymentDate: actualPaymentDate,
         type: PAYMENT_RECORD_TYPES.FULL,
         status: PAYMENT_STATUSES.SUCCESS,
         createdBy: user.id
       });
-    } else if (initialPayment > 0) {
+    } else if (numericInitialPayment > 0) {
       await Payment.create({
         admissionId: existingAdmission._id,
-        amount: initialPayment,
+        amount: numericInitialPayment,
         paymentMode: initialPaymentMode,
         paymentDate: actualPaymentDate,
         type: PAYMENT_RECORD_TYPES.INITIAL,
@@ -550,18 +585,18 @@ class AdmissionService {
     const timelineEntries = [{
       type: TIMELINE_TYPES.PAYMENT_PLAN_SET,
       message: isPaidAndLocked
-        ? `Full payment of ₹${totalFees} collected by ${user.name}`
-        : (initialPayment > 0 
-            ? `Payment plan updated with initial payment of ₹${initialPayment} by ${user.name}`
+        ? `Full payment of ₹${numericTotalFees} collected by ${user.name}`
+        : (numericInitialPayment > 0
+            ? `Payment plan updated with initial payment of ₹${numericInitialPayment} by ${user.name}`
             : `Payment plan updated by ${user.name}`),
       user: user.id,
       userName: user.name,
       timestamp: new Date(),
       metadata: {
         paymentType,
-        paymentMethod: isPaidAndLocked ? paymentMethod : (initialPayment > 0 ? initialPaymentMode : null),
-        totalFees,
-        initialPayment,
+        paymentMethod: isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null),
+        totalFees: numericTotalFees,
+        initialPayment: numericInitialPayment,
         installmentCount: formattedInstallments.length,
         isLocked: isPaidAndLocked
       }
@@ -577,18 +612,38 @@ class AdmissionService {
       });
     }
 
-    if (initialPayment > 0 && !isPaidAndLocked) {
+    if (numericInitialPayment > 0 && !isPaidAndLocked) {
       timelineEntries.push({
         type: TIMELINE_TYPES.PAYMENT_RECEIVED,
-        message: `Initial payment of ₹${initialPayment} received via ${initialPaymentMode} by ${user.name}`,
+        message: `Initial payment of ₹${numericInitialPayment} received via ${initialPaymentMode} by ${user.name}`,
         user: user.id,
         userName: user.name,
         timestamp: new Date(),
-        metadata: { amount: initialPayment, paymentMode: initialPaymentMode }
+        metadata: { amount: numericInitialPayment, paymentMode: initialPaymentMode }
+      });
+    }
+
+    // Get enquiry to check if it needs assignment
+    const enquiry = await Enquiry.findById(existingAdmission.enquiryId);
+
+    // Add assignment entry if enquiry was not previously assigned
+    if (enquiry && !enquiry.assignedTo) {
+      timelineEntries.push({
+        type: TIMELINE_TYPES.ASSIGNED,
+        message: `Enquiry assigned to ${user.name} upon admission update`,
+        user: user.id,
+        userName: user.name,
+        timestamp: new Date(),
+        metadata: {
+          field: 'assignedTo',
+          previousValue: null,
+          newValue: user.id
+        }
       });
     }
 
     await Enquiry.findByIdAndUpdate(existingAdmission.enquiryId, {
+      $set: enquiry && !enquiry.assignedTo ? { assignedTo: user.id } : {},
       $push: {
         timeline: {
           $each: timelineEntries,
@@ -619,6 +674,10 @@ class AdmissionService {
     let isPaidAndLocked = false;
     const actualPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
 
+    // Convert to numbers at function level for use across all payment types
+    const numericInitialPayment = Number(initialPayment) || 0;
+    const numericTotalFees = Number(totalFees) || 0;
+
     if (paymentType === PAYMENT_TYPES.ONE_TIME) {
       if (installments.length > 0) {
         throw new AppError('ONE_TIME payment type should not have installments', 400);
@@ -629,12 +688,12 @@ class AdmissionService {
         throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
       }
 
-      const totalInstallmentAmount = installments.reduce((sum, inst) => sum + inst.amount, 0);
-      const totalPlanned = initialPayment + totalInstallmentAmount;
+      const totalInstallmentAmount = installments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
+      const totalPlanned = numericInitialPayment + totalInstallmentAmount;
 
-      if (totalPlanned !== totalFees) {
+      if (totalPlanned !== numericTotalFees) {
         throw new AppError(
-          `Initial payment (₹${initialPayment}) + Installments total (₹${totalInstallmentAmount}) must equal total fees (₹${totalFees})`,
+          `Initial payment (₹${numericInitialPayment}) + Installments total (₹${totalInstallmentAmount}) must equal total fees (₹${numericTotalFees})`,
           400
         );
       }
@@ -654,7 +713,7 @@ class AdmissionService {
       }));
 
       // If initial payment equals total fees, treat as fully paid
-      if (initialPayment === totalFees) {
+      if (numericInitialPayment === numericTotalFees) {
         isPaidAndLocked = true;
       }
     }
@@ -664,10 +723,10 @@ class AdmissionService {
       course: enquiry.courseInterested,
       counselorId: user.id,
       admissionDate: new Date(),
-      totalFees,
+      totalFees: numericTotalFees,
       status: ADMISSION_STATUSES.ACTIVE,
       paymentType,
-      paymentMethod: isPaidAndLocked ? paymentMethod : (initialPayment > 0 ? initialPaymentMode : null),
+      paymentMethod: isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null),
       installments: formattedInstallments,
       isLocked: isPaidAndLocked
     });
@@ -676,17 +735,17 @@ class AdmissionService {
     if (isPaidAndLocked) {
       await Payment.create({
         admissionId: admission._id,
-        amount: totalFees,
+        amount: numericTotalFees,
         paymentMode: paymentMethod,
         paymentDate: actualPaymentDate,
         type: PAYMENT_RECORD_TYPES.FULL,
         status: PAYMENT_STATUSES.SUCCESS,
         createdBy: user.id
       });
-    } else if (initialPayment > 0) {
+    } else if (numericInitialPayment > 0) {
       await Payment.create({
         admissionId: admission._id,
-        amount: initialPayment,
+        amount: numericInitialPayment,
         paymentMode: initialPaymentMode,
         paymentDate: actualPaymentDate,
         type: PAYMENT_RECORD_TYPES.INITIAL,
@@ -699,9 +758,9 @@ class AdmissionService {
     const timelineEntries = [{
       type: TIMELINE_TYPES.CONVERTED,
       message: isPaidAndLocked
-        ? `Admission created with full payment of ₹${totalFees} by ${user.name}`
-        : (initialPayment > 0
-            ? `Admission created with initial payment of ₹${initialPayment} by ${user.name}`
+        ? `Admission created with full payment of ₹${numericTotalFees} by ${user.name}`
+        : (numericInitialPayment > 0
+            ? `Admission created with initial payment of ₹${numericInitialPayment} by ${user.name}`
             : `Admission created with payment plan by ${user.name}`),
       user: user.id,
       userName: user.name,
@@ -709,8 +768,8 @@ class AdmissionService {
       metadata: {
         admissionId: admission._id,
         paymentType,
-        totalFees,
-        initialPayment,
+        totalFees: numericTotalFees,
+        initialPayment: numericInitialPayment,
         installmentCount: formattedInstallments.length,
         isLocked: isPaidAndLocked
       }
@@ -726,14 +785,14 @@ class AdmissionService {
       });
     }
 
-    if (initialPayment > 0 && !isPaidAndLocked) {
+    if (numericInitialPayment > 0 && !isPaidAndLocked) {
       timelineEntries.push({
         type: TIMELINE_TYPES.PAYMENT_RECEIVED,
-        message: `Initial payment of ₹${initialPayment} received via ${initialPaymentMode} by ${user.name}`,
+        message: `Initial payment of ₹${numericInitialPayment} received via ${initialPaymentMode} by ${user.name}`,
         user: user.id,
         userName: user.name,
         timestamp: new Date(),
-        metadata: { amount: initialPayment, paymentMode: initialPaymentMode }
+        metadata: { amount: numericInitialPayment, paymentMode: initialPaymentMode }
       });
     }
 
@@ -750,9 +809,28 @@ class AdmissionService {
       });
     }
 
-    // Auto-convert enquiry status and add timeline entries
+    // Auto-convert enquiry status, assign to user, and add timeline entries
+    // Add assignment entry if enquiry was not previously assigned
+    if (!enquiry.assignedTo) {
+      timelineEntries.push({
+        type: TIMELINE_TYPES.ASSIGNED,
+        message: `Enquiry assigned to ${user.name} upon admission creation`,
+        user: user.id,
+        userName: user.name,
+        timestamp: new Date(),
+        metadata: {
+          field: 'assignedTo',
+          previousValue: null,
+          newValue: user.id
+        }
+      });
+    }
+
     await Enquiry.findByIdAndUpdate(enquiry._id, {
-      $set: { status: ENQUIRY_STATUSES.CONVERTED },
+      $set: {
+        status: ENQUIRY_STATUSES.CONVERTED,
+        assignedTo: user.id
+      },
       $push: {
         timeline: {
           $each: timelineEntries,

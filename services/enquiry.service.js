@@ -30,7 +30,15 @@ class EnquiryService {
       .populate('createdBy', 'name email');
 
     if (!enquiry) throw new AppError('Enquiry not found', 404);
-    return enquiry;
+    
+    // Convert to object to add computed fields
+    const enquiryObj = enquiry.toObject();
+    enquiryObj.isUnassigned = !enquiryObj.assignedTo;
+    
+    // Remove duplicate 'id' virtual (already have '_id')
+    delete enquiryObj.id;
+    
+    return enquiryObj;
   }
 
   async listEnquiries(query, user) {
