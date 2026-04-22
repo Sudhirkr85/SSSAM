@@ -1,7 +1,7 @@
 const { Payment, Admission, Enquiry } = require('../models');
 const mongoose = require('mongoose');
 const AppError = require('../utils/AppError');
-const { PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES, TIMELINE_TYPES, ROLES } = require('../config/constants');
+const { PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES, ENQUIRY_STATUSES, ROLES } = require('../config/constants');
 
 class PaymentService {
   _checkIfLocked(admission) {
@@ -59,7 +59,7 @@ class PaymentService {
   }
 
   async createPayment(paymentData, user) {
-    const { admissionId, amount, paymentMode, paymentDate, type, status, note, installmentIndex, nextInstallmentDate } = paymentData;
+    const { admissionId, amount, paymentMode, paymentDate, type, status, note, installmentIndex, nextInstallmentDate, refundAmount, refundReason, originalPaymentId, isPartialRefund, cancellationReason } = paymentData;
 
     const paymentType = type || PAYMENT_RECORD_TYPES.INSTALLMENT;
     const paymentStatus = status || PAYMENT_STATUSES.SUCCESS;
@@ -200,6 +200,11 @@ class PaymentService {
       note: note || null,
       installmentIndex: installmentIndex !== undefined ? installmentIndex : null,
       nextInstallmentDate: nextInstallmentDate || null,
+      refundAmount: refundAmount || null,
+      refundReason: refundReason || null,
+      originalPaymentId: originalPaymentId || null,
+      isPartialRefund: isPartialRefund || false,
+      cancellationReason: cancellationReason || null,
       createdBy: user.id
     });
 
@@ -219,83 +224,19 @@ class PaymentService {
 
     await admission.save();
 
-    // Build timeline entries
+    // Add statusHistory entry to enquiry
     const newRemaining = admission.totalFees - newTotalPaid;
-    const timelineEntries = [{
-      type: paymentType === PAYMENT_RECORD_TYPES.REFUND ? TIMELINE_TYPES.PAYMENT : TIMELINE_TYPES.PAYMENT,
-      message: paymentType === PAYMENT_RECORD_TYPES.REFUND
-        ? `Refund of ₹${amount} processed by ${user.name}`
-        : `Payment of ₹${amount} received by ${user.name}`,
-      user: user.id,
-      userName: user.name,
-      timestamp: new Date(),
-      metadata: { amount, type: paymentType, remaining: newRemaining }
-    }];
-
-    if (admission.paymentType === PAYMENT_TYPES.INSTALLMENT) {
-      installmentPayments.forEach(instPayment => {
-        // Handle registration fee payment (installmentIndex = -1)
-        if (instPayment.isRegistrationFee) {
-          timelineEntries.push({
-            type: TIMELINE_TYPES.PAYMENT_RECEIVED,
-            message: `Registration fee of ₹${instPayment.amount} received by ${user.name}`,
-            user: user.id,
-            userName: user.name,
-            timestamp: new Date(),
-            metadata: { amount: instPayment.amount, isRegistrationFee: true }
-          });
-        }
-        // Handle regular installment payments from sequential logic
-        else if (instPayment.newStatus === 'PAID' && instPayment.previousStatus !== 'PAID') {
-          timelineEntries.push({
-            type: TIMELINE_TYPES.INSTALLMENT_PAID,
-            message: `Installment of ₹${instPayment.amount} marked as Paid by ${user.name}`,
-            user: user.id,
-            userName: user.name,
-            timestamp: new Date(),
-            metadata: { installmentId: instPayment.installmentId, amount: instPayment.amount }
-          });
-        }
-      });
-
-      // Add specific installment payment timeline entry if installmentIndex >= 0
-      if (installmentIndex !== undefined && installmentIndex >= 0) {
-        const targetInstallment = admission.installments[installmentIndex];
-        if (targetInstallment) {
-          timelineEntries.push({
-            type: TIMELINE_TYPES.INSTALLMENT_PAID,
-            message: `Payment made for Installment ${installmentIndex + 1} of ₹${amount} by ${user.name}`,
-            user: user.id,
-            userName: user.name,
-            timestamp: new Date(),
-            metadata: {
-              installmentIndex,
-              installmentNumber: installmentIndex + 1,
-              amount,
-              dueDate: targetInstallment.dueDate,
-              status: targetInstallment.status
-            }
-          });
-        }
-      }
-    }
-
-    if (newRemaining === 0 && paymentType !== PAYMENT_RECORD_TYPES.REFUND) {
-      timelineEntries.push({
-        type: TIMELINE_TYPES.FULL_PAYMENT_COMPLETED,
-        message: `Full payment of ₹${admission.totalFees} completed by ${user.name}`,
-        user: user.id,
-        userName: user.name,
-        timestamp: new Date(),
-        metadata: { totalFees: admission.totalFees, totalPayments: newTotalPaid }
-      });
-    }
+    const statusNote = paymentType === PAYMENT_RECORD_TYPES.REFUND
+      ? `Refund of ₹${amount} processed`
+      : `Payment of ₹${amount} received. Remaining: ₹${newRemaining}`;
 
     await Enquiry.findByIdAndUpdate(admission.enquiryId, {
       $push: {
-        timeline: {
-          $each: timelineEntries,
-          $slice: -15
+        statusHistory: {
+          status: ENQUIRY_STATUSES.CONVERTED,
+          note: statusNote,
+          changedBy: user.id,
+          changedAt: new Date()
         }
       }
     });
@@ -391,21 +332,31 @@ class PaymentService {
     if (updateData.nextInstallmentDate !== undefined) {
       payment.nextInstallmentDate = updateData.nextInstallmentDate;
     }
+    if (updateData.refundAmount !== undefined) {
+      payment.refundAmount = updateData.refundAmount;
+    }
+    if (updateData.refundReason !== undefined) {
+      payment.refundReason = updateData.refundReason;
+    }
+    if (updateData.originalPaymentId !== undefined) {
+      payment.originalPaymentId = updateData.originalPaymentId;
+    }
+    if (updateData.isPartialRefund !== undefined) {
+      payment.isPartialRefund = updateData.isPartialRefund;
+    }
+    if (updateData.cancellationReason !== undefined) {
+      payment.cancellationReason = updateData.cancellationReason;
+    }
 
     await payment.save();
 
     await Enquiry.findByIdAndUpdate(admission.enquiryId, {
       $push: {
-        timeline: {
-          $each: [{
-            type: 'payment_updated',
-            message: `Payment updated by ${user.name}`,
-            user: user.id,
-            userName: user.name,
-            timestamp: new Date(),
-            metadata: { oldAmount, newAmount }
-          }],
-          $slice: -15
+        statusHistory: {
+          status: ENQUIRY_STATUSES.CONVERTED,
+          note: `Payment updated by ${user.name}`,
+          changedBy: user.id,
+          changedAt: new Date()
         }
       }
     });

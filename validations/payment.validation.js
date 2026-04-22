@@ -1,4 +1,5 @@
 const { body, param } = require('express-validator');
+const { PAYMENT_MODES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES } = require('../config/constants');
 
 // Helper to check if date is in the past
 const isPastDate = (date) => {
@@ -19,14 +20,14 @@ const createPaymentValidation = [
   body('amount')
     .notEmpty()
     .withMessage('Payment amount is required')
-    .isFloat({ min: 0 })
-    .withMessage('Payment amount must be at least 0'),
+    .isFloat({ min: 1 })
+    .withMessage('Payment amount must be greater than 0'),
 
   body('paymentMode')
     .notEmpty()
     .withMessage('Payment mode is required')
-    .isIn(['CASH', 'CARD', 'ONLINE', 'UPI', 'CHEQUE'])
-    .withMessage('Payment mode must be CASH, CARD, ONLINE, UPI, or CHEQUE'),
+    .isIn(Object.values(PAYMENT_MODES))
+    .withMessage(`Payment mode must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
 
   body('paymentDate')
     .optional()
@@ -34,21 +35,22 @@ const createPaymentValidation = [
     .withMessage('Please provide a valid payment date')
     .toDate()
     .custom((value) => {
-      if (isPastDate(value)) {
-        throw new Error('Payment date cannot be in the past');
+      if (value && value > new Date()) {
+        throw new Error('Payment date cannot be in the future');
       }
       return true;
     }),
 
   body('type')
-    .optional()
-    .isIn(['initial', 'installment', 'full', 'refund'])
-    .withMessage('Type must be initial, installment, full, or refund'),
+    .notEmpty()
+    .withMessage('Payment type is required')
+    .isIn(Object.values(PAYMENT_RECORD_TYPES))
+    .withMessage(`Type must be one of: ${Object.values(PAYMENT_RECORD_TYPES).join(', ')}`),
 
   body('status')
     .optional()
-    .isIn(['success', 'pending', 'failed'])
-    .withMessage('Status must be success, pending, or failed'),
+    .isIn(Object.values(PAYMENT_STATUSES))
+    .withMessage(`Status must be one of: ${Object.values(PAYMENT_STATUSES).join(', ')}`),
 
   body('note')
     .optional()
@@ -58,8 +60,8 @@ const createPaymentValidation = [
 
   body('installmentIndex')
     .optional()
-    .isInt({ min: 0 })
-    .withMessage('Installment index must be a positive integer')
+    .isInt({ min: 1 })
+    .withMessage('Installment index must be greater than 0')
     .toInt(),
 
   body('nextInstallmentDate')
@@ -68,23 +70,52 @@ const createPaymentValidation = [
     .withMessage('Please provide a valid date for next installment')
     .toDate()
     .custom((value) => {
-      if (isPastDate(value)) {
+      if (value && isPastDate(value)) {
         throw new Error('Next installment date cannot be in the past');
       }
       return true;
-    })
+    }),
+
+  // Refund fields
+  body('refundAmount')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Refund amount cannot be negative'),
+
+  body('refundReason')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Refund reason cannot exceed 500 characters'),
+
+  body('originalPaymentId')
+    .optional()
+    .isMongoId()
+    .withMessage('Please provide a valid payment ID'),
+
+  body('isPartialRefund')
+    .optional()
+    .isBoolean()
+    .withMessage('Is partial refund must be a boolean'),
+
+  // Cancellation field
+  body('cancellationReason')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Cancellation reason cannot exceed 500 characters')
 ];
 
 const updatePaymentValidation = [
   body('amount')
     .optional()
-    .isFloat({ min: 0 })
-    .withMessage('Payment amount must be at least 0'),
+    .isFloat({ min: 1 })
+    .withMessage('Payment amount must be greater than 0'),
 
   body('paymentMode')
     .optional()
-    .isIn(['CASH', 'CARD', 'ONLINE', 'UPI', 'CHEQUE'])
-    .withMessage('Payment mode must be CASH, CARD, ONLINE, UPI, or CHEQUE'),
+    .isIn(Object.values(PAYMENT_MODES))
+    .withMessage(`Payment mode must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
 
   body('paymentDate')
     .optional()
@@ -92,21 +123,21 @@ const updatePaymentValidation = [
     .withMessage('Please provide a valid payment date')
     .toDate()
     .custom((value) => {
-      if (isPastDate(value)) {
-        throw new Error('Payment date cannot be in the past');
+      if (value && value > new Date()) {
+        throw new Error('Payment date cannot be in the future');
       }
       return true;
     }),
 
   body('type')
     .optional()
-    .isIn(['initial', 'installment', 'full', 'refund'])
-    .withMessage('Type must be initial, installment, full, or refund'),
+    .isIn(Object.values(PAYMENT_RECORD_TYPES))
+    .withMessage(`Type must be one of: ${Object.values(PAYMENT_RECORD_TYPES).join(', ')}`),
 
   body('status')
     .optional()
-    .isIn(['success', 'pending', 'failed'])
-    .withMessage('Status must be success, pending, or failed'),
+    .isIn(Object.values(PAYMENT_STATUSES))
+    .withMessage(`Status must be one of: ${Object.values(PAYMENT_STATUSES).join(', ')}`),
 
   body('note')
     .optional()
@@ -116,8 +147,8 @@ const updatePaymentValidation = [
 
   body('installmentIndex')
     .optional()
-    .isInt({ min: 0 })
-    .withMessage('Installment index must be a positive integer')
+    .isInt({ min: 1 })
+    .withMessage('Installment index must be greater than 0')
     .toInt(),
 
   body('nextInstallmentDate')
@@ -126,11 +157,40 @@ const updatePaymentValidation = [
     .withMessage('Please provide a valid date for next installment')
     .toDate()
     .custom((value) => {
-      if (isPastDate(value)) {
+      if (value && isPastDate(value)) {
         throw new Error('Next installment date cannot be in the past');
       }
       return true;
-    })
+    }),
+
+  // Refund fields
+  body('refundAmount')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Refund amount cannot be negative'),
+
+  body('refundReason')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Refund reason cannot exceed 500 characters'),
+
+  body('originalPaymentId')
+    .optional()
+    .isMongoId()
+    .withMessage('Please provide a valid payment ID'),
+
+  body('isPartialRefund')
+    .optional()
+    .isBoolean()
+    .withMessage('Is partial refund must be a boolean'),
+
+  // Cancellation field
+  body('cancellationReason')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Cancellation reason cannot exceed 500 characters')
 ];
 
 const paymentIdParamValidation = [
