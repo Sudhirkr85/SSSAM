@@ -4,46 +4,46 @@ const { Readable } = require('stream');
 const { enquiryService } = require('../services');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
+const logger = require('../utils/logger');
 
 class BulkUploadController {
   uploadEnquiries = catchAsync(async (req, res) => {
-    console.log('[DEBUG] uploadEnquiries API called');
-    console.log('[DEBUG] User:', req.user?.id, req.user?.name, req.user?.role);
+    logger.debug('[DEBUG] uploadEnquiries API called', { userId: req.user?.id, userName: req.user?.name, userRole: req.user?.role });
 
     if (!req.file) {
-      console.log('[DEBUG] No file received');
+      logger.debug('[DEBUG] No file received');
       return errorResponse(res, 'Please upload an Excel or CSV file', 400);
     }
 
-    console.log('[DEBUG] File received:', req.file.originalname, 'Size:', req.file.size, 'MIME:', req.file.mimetype);
+    logger.debug('[DEBUG] File received:', { filename: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype });
 
     const isCSV = req.file.mimetype === 'text/csv' || req.file.originalname.endsWith('.csv');
-    console.log('[DEBUG] Is CSV:', isCSV);
+    logger.debug('[DEBUG] Is CSV:', { isCSV });
 
     let data = [];
 
     if (isCSV) {
-      console.log('[DEBUG] Parsing CSV...');
+      logger.debug('[DEBUG] Parsing CSV...');
       data = await this._parseCSV(req.file.buffer);
     } else {
-      console.log('[DEBUG] Parsing Excel...');
+      logger.debug('[DEBUG] Parsing Excel...');
       const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       data = xlsx.utils.sheet_to_json(sheet);
     }
 
-    console.log('[DEBUG] Parsed rows:', data.length);
-    console.log('[DEBUG] First row sample:', data[0]);
+    logger.debug('[DEBUG] Parsed rows:', { rows: data.length });
+    logger.debug('[DEBUG] First row sample:', data[0]);
 
     if (data.length === 0) {
-      console.log('[DEBUG] No data found in file');
+      logger.debug('[DEBUG] No data found in file');
       return errorResponse(res, 'File is empty or has no valid data', 400);
     }
 
-    console.log('[DEBUG] Calling enquiryService.bulkUpload...');
+    logger.debug('[DEBUG] Calling enquiryService.bulkUpload...');
     const result = await enquiryService.bulkUpload(data, req.user);
-    console.log('[DEBUG] bulkUpload result:', { successCount: result.successCount, failedCount: result.failedCount });
+    logger.debug('[DEBUG] bulkUpload result:', { successCount: result.successCount, failedCount: result.failedCount });
 
     return successResponse(res, {
       successCount: result.successCount,

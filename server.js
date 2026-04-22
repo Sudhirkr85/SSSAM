@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const connectDB = require('./config/database');
 const app = require('./app');
+const logger = require('./utils/logger');
 
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -11,11 +12,11 @@ const startServer = async () => {
     await connectDB();
     
     app.listen(PORT, () => {
-      console.log(`Server running in ${NODE_ENV} mode on port ${PORT}`);
-      console.log(`API available at http://localhost:${PORT}/api`);
+      logger.info(`Server running in ${NODE_ENV} mode on port ${PORT}`, { port: PORT, env: NODE_ENV });
+      logger.info(`API available at http://localhost:${PORT}/api`, { url: `http://localhost:${PORT}/api` });
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.error('Failed to start server:', error);
     process.exit(1);
   }
 };

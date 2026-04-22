@@ -90,26 +90,68 @@ class PaymentService {
 
     const paymentType = type || PAYMENT_RECORD_TYPES.INSTALLMENT;
     const paymentStatus = status || PAYMENT_STATUSES.SUCCESS;
+    const actualPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
+
+    // Check for duplicate payments before creating
+    const duplicateCheck = await Payment.findOne({
+      admissionId,
+      amount: amount,
+      paymentMode: paymentMode || 'CASH',
+      paymentDate: {
+        $gte: new Date(actualPaymentDate.setHours(0, 0, 0, 0)),
+        $lt: new Date(actualPaymentDate.setHours(23, 59, 59, 999))
+      },
+      type: paymentType,
+      isDeleted: false
+    });
+
+    if (duplicateCheck) {
+      throw new AppError('A similar payment already exists for this admission on this date', 400);
+    }
 
     // Use transaction for refund operations to ensure atomicity
     if (paymentType === PAYMENT_RECORD_TYPES.REFUND) {
       return await this.withTransaction(async (session) => {
-        const admission = await Admission.findById(admissionId).session(session);
+        const admission = await Admission.findOne({ _id: admissionId, isDeleted: false }).session(session);
         if (!admission) {
           throw new AppError('Admission not found', 404);
         }
 
         // Validate original payment exists if provided
         if (originalPaymentId) {
-          const originalPayment = await Payment.findById(originalPaymentId).session(session);
+          const originalPayment = await Payment.findOne({ _id: originalPaymentId, isDeleted: false }).session(session);
           if (!originalPayment) {
             throw new AppError('Original payment not found', 404);
+          }
+          
+          // Validate original payment belongs to the same admission
+          if (originalPayment.admissionId.toString() !== admissionId) {
+            throw new AppError('Original payment does not belong to this admission', 400);
+          }
+
+          // Validate original payment is not a refund itself
+          if (originalPayment.type === PAYMENT_RECORD_TYPES.REFUND) {
+            throw new AppError('Cannot refund a refund payment', 400);
           }
           
           // Validate refund amount doesn't exceed original payment
           const originalAmount = originalPayment.amount;
           if (amount > originalAmount) {
             throw new AppError(`Refund amount (₹${amount}) exceeds original payment amount (₹${originalAmount})`, 400);
+          }
+
+          // Calculate total refunds already made against this original payment
+          const existingRefunds = await Payment.find({
+            originalPaymentId: originalPaymentId,
+            type: PAYMENT_RECORD_TYPES.REFUND,
+            isDeleted: false
+          }).session(session);
+
+          const totalRefundedAgainstOriginal = existingRefunds.reduce((sum, r) => sum + r.amount, 0);
+          const remainingRefundable = originalAmount - totalRefundedAgainstOriginal;
+
+          if (amount > remainingRefundable) {
+            throw new AppError(`Refund amount (₹${amount}) exceeds remaining refundable amount (₹${remainingRefundable}). Original: ₹${originalAmount}, Already refunded: ₹${totalRefundedAgainstOriginal}`, 400);
           }
         }
 
@@ -124,11 +166,30 @@ class PaymentService {
           throw new AppError(`Refund amount exceeds total paid. Total paid: ₹${totalPaid}`, 400);
         }
 
+        // Calculate total refunds already made for this admission
+        const allRefunds = await Payment.find({
+          admissionId,
+          type: PAYMENT_RECORD_TYPES.REFUND,
+          isDeleted: false
+        }).session(session);
+
+        const totalRefunded = allRefunds.reduce((sum, r) => sum + r.amount, 0);
+        const remainingAfterRefund = totalPaid - totalRefunded - amount;
+
+        if (remainingAfterRefund < 0) {
+          throw new AppError(`Refund amount (₹${amount}) would exceed total paid. Total paid: ₹${totalPaid}, Already refunded: ₹${totalRefunded}`, 400);
+        }
+
+        // Validate refund reason is provided
+        if (!refundReason || refundReason.trim() === '') {
+          throw new AppError('Refund reason is required', 400);
+        }
+
         const payment = await Payment.create([{
           admissionId,
           amount,
           paymentMode: paymentMode || 'CASH',
-          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          paymentDate: actualPaymentDate,
           type: paymentType,
           status: paymentStatus,
           note: note || null,
@@ -146,7 +207,7 @@ class PaymentService {
           $push: {
             statusHistory: {
               status: ENQUIRY_STATUSES.CONVERTED,
-              note: `Refund of ₹${amount} processed`,
+              note: `Refund of ₹${amount} processed. Reason: ${refundReason}`,
               changedBy: user.id,
               changedAt: new Date()
             }
@@ -518,6 +579,28 @@ class PaymentService {
       overdueCount: overdueInstallments.length,
       overdueInstallments
     };
+  }
+
+  async deletePayment(paymentId, user) {
+    // Only admins can delete payments
+    if (user.role !== ROLES.ADMIN) {
+      throw new AppError('Only admins are authorized to delete payments', 403);
+    }
+
+    const payment = await Payment.findOne({ _id: paymentId, isDeleted: false });
+
+    if (!payment) {
+      throw new AppError('Payment not found', 404);
+    }
+
+    // Soft delete - mark as deleted instead of hard delete
+    await Payment.findByIdAndUpdate(paymentId, {
+      isDeleted: true,
+      deletedAt: new Date(),
+      deletedBy: user.id
+    });
+
+    return { message: 'Payment deleted successfully' };
   }
 }
 

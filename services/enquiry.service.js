@@ -2,6 +2,7 @@ const { Enquiry, Admission } = require('../models');
 const { ROLES, PAGINATION, ENQUIRY_STATUSES } = require('../config/constants');
 const { canModifyEnquiry } = require('../utils/accessControl');
 const AppError = require('../utils/AppError');
+const logger = require('../utils/logger');
 
 class EnquiryService {
   async createEnquiry(data, user) {
@@ -217,8 +218,7 @@ class EnquiryService {
   }
 
   async bulkUpload(dataArray, user) {
-    console.log('[DEBUG] enquiryService.bulkUpload called with', dataArray.length, 'rows');
-    console.log('[DEBUG] User:', user?.id, user?.name);
+    logger.debug('Bulk upload started', { rows: dataArray.length, userId: user.id, userName: user.name });
 
     const created = [];
     const errors = [];
@@ -244,10 +244,10 @@ class EnquiryService {
         const emailRaw = getField(data, 'email');
         const status = getField(data, 'status');
 
-        console.log(`[DEBUG] Processing row ${i + 1}:`, { name, mobile: mobileRaw, course });
+        logger.debug('Processing row', { row: i + 1, name, mobile: mobileRaw, course });
 
         if (!name || !mobileRaw || !course) {
-          console.log(`[DEBUG] Row ${i + 1} skipped: Missing required fields`);
+          logger.warn('Row skipped - missing required fields', { row: i + 1 });
           errors.push({ row: i + 1, error: 'Missing required fields (name, mobile, course)' });
           continue;
         }
@@ -262,7 +262,7 @@ class EnquiryService {
         const mobile = mobileStr.replace(/\D/g, '');
 
         if (mobile.length !== 10) {
-          console.log(`[DEBUG] Row ${i + 1} skipped: Invalid mobile - ${mobile}`);
+          logger.warn('Row skipped - invalid mobile', { row: i + 1, mobile });
           errors.push({ row: i + 1, error: 'Invalid mobile number (must be 10 digits)' });
           continue;
         }
@@ -281,7 +281,7 @@ class EnquiryService {
           if (!email || email === '') email = null;
         }
 
-        console.log(`[DEBUG] Row ${i + 1} - Creating enquiry in DB...`);
+        logger.debug('Creating enquiry in DB', { row: i + 1 });
         const enquiry = await Enquiry.create({
           name: name.trim(),
           mobile,
@@ -297,16 +297,16 @@ class EnquiryService {
             changedAt: new Date()
           }]
         });
-        console.log(`[DEBUG] Row ${i + 1} - Created enquiry ID:`, enquiry._id.toString());
+        logger.debug('Enquiry created', { row: i + 1, enquiryId: enquiry._id.toString() });
 
         created.push(enquiry);
       } catch (err) {
-        console.log(`[DEBUG] Row ${i + 1} error:`, err.message);
+        logger.error('Row processing error', { row: i + 1, error: err.message });
         errors.push({ row: i + 1, error: err.message });
       }
     }
 
-    console.log('[DEBUG] bulkUpload complete - Created:', created.length, 'Errors:', errors.length);
+    logger.info('Bulk upload completed', { created: created.length, errors: errors.length });
     return {
       successCount: created.length,
       failedCount: errors.length,
@@ -315,9 +315,9 @@ class EnquiryService {
   }
 
   async deleteEnquiry(id, user) {
-    // Counselors cannot delete records
-    if (user.role === ROLES.COUNSELOR) {
-      throw new AppError('Counselors are not authorized to delete records', 403);
+    // Only admins can delete records
+    if (user.role !== ROLES.ADMIN) {
+      throw new AppError('Only admins are authorized to delete records', 403);
     }
 
     const enquiry = await Enquiry.findById(id);
@@ -334,7 +334,8 @@ class EnquiryService {
     // Soft delete - mark as deleted instead of hard delete
     await Enquiry.findByIdAndUpdate(id, {
       isDeleted: true,
-      deletedAt: new Date()
+      deletedAt: new Date(),
+      deletedBy: user.id
     });
 
     return { message: 'Enquiry deleted successfully' };
