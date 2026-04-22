@@ -1,4 +1,5 @@
 const { body, param, query } = require('express-validator');
+const { PAYMENT_TYPES, PAYMENT_MODES, ADMISSION_STATUSES } = require('../config/constants');
 
 // Helper to validate installment dates are in future and sequential
 const validateInstallmentDates = (value, { req }) => {
@@ -38,11 +39,33 @@ const createAdmissionValidation = [
     .withMessage('Enquiry ID is required')
     .isMongoId()
     .withMessage('Please provide a valid enquiry ID'),
+  body('course')
+    .notEmpty()
+    .withMessage('Course is required')
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Course cannot exceed 100 characters'),
   body('totalFees')
-    .optional()
+    .notEmpty()
+    .withMessage('Total fees is required')
+    .isFloat({ min: 1 })
+    .withMessage('Total fees must be greater than 0'),
+  body('registrationAmount')
+    .notEmpty()
+    .withMessage('Registration amount is required')
+    .isFloat({ min: 1 })
+    .withMessage('Registration amount must be greater than 0'),
+  body('remainingAmount')
+    .notEmpty()
+    .withMessage('Remaining amount is required')
     .isFloat({ min: 0 })
-    .withMessage('Total fees must be a positive number'),
-  body('admissionDate')
+    .withMessage('Remaining amount cannot be negative'),
+  body('paymentType')
+    .notEmpty()
+    .withMessage('Payment type is required')
+    .isIn(Object.values(PAYMENT_TYPES))
+    .withMessage(`Payment type must be one of: ${Object.values(PAYMENT_TYPES).join(', ')}`),
+  body('fullPaymentDueDate')
     .optional()
     .isISO8601()
     .withMessage('Please provide a valid date')
