@@ -5,8 +5,9 @@ const { ENQUIRY_STATUSES, PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES,
 
 class AdmissionService {
   // Helper to add statusHistory entry to enquiry
-  async _addStatusHistory(enquiryId, status, note, userId) {
-    const enquiry = await Enquiry.findById(enquiryId);
+  async _addStatusHistory(enquiryId, status, note, userId, session = null) {
+    const query = Enquiry.findById(enquiryId);
+    const enquiry = session ? await query.session(session) : await query;
     if (!enquiry) return;
 
     // Check if the last status history entry has the same status and note within 5 seconds
@@ -19,6 +20,7 @@ class AdmissionService {
       }
     }
 
+    const updateOptions = session ? { session } : {};
     await Enquiry.findByIdAndUpdate(enquiryId, {
       $push: {
         statusHistory: {
@@ -31,7 +33,7 @@ class AdmissionService {
           $slice: -50
         }
       }
-    });
+    }, updateOptions);
   }
 
   // Helper method to execute operations within a transaction
@@ -46,7 +48,7 @@ class AdmissionService {
       });
     } catch (error) {
       // If transactions fail (no replica set), execute without transaction
-      if (error.message && error.message.includes('transaction')) {
+      if (error.message && (error.message.includes('transaction') || error.message.includes('replica'))) {
         session.endSession();
         result = await operations();
       } else {
@@ -231,7 +233,7 @@ class AdmissionService {
     admission.status = ADMISSION_STATUSES.CANCELLED;
     await admission.save();
 
-    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission cancelled by ${user.name}`, user.id);
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission cancelled by ${user.name}`, user.id, null);
 
     return await this.getAdmissionById(admissionId);
   }
@@ -263,7 +265,7 @@ class AdmissionService {
     admission.totalFees = Number(totalFees) || 0;
     await admission.save();
 
-    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Total fees updated`, user.id);
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Total fees updated`, user.id, null);
 
     return await this.getAdmissionById(admissionId);
   }
@@ -293,7 +295,7 @@ class AdmissionService {
     admission.writeOffReason = writeOffReason;
     await admission.save();
 
-    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission written off by ${user.name}. Reason: ${writeOffReason}`, user.id);
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission written off by ${user.name}. Reason: ${writeOffReason}`, user.id, null);
 
     return await this.getAdmissionById(admissionId);
   }
@@ -339,7 +341,7 @@ class AdmissionService {
     admission.isLocked = true;
     await admission.save();
 
-    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission locked by ${user.name}`, user.id);
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Admission locked by ${user.name}`, user.id, null);
 
     return await this.getAdmissionById(admissionId);
   }
@@ -397,7 +399,7 @@ class AdmissionService {
           createdBy: user.id
         }], { session });
 
-        await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Full payment collected via ${paymentMethod}`, user.id);
+        await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Full payment collected via ${paymentMethod}`, user.id, session);
       } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
         if (!installments || installments.length === 0) {
           throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
@@ -482,7 +484,7 @@ class AdmissionService {
         const note = initialPayment > 0
           ? `Payment plan set to INSTALLMENT with initial payment of ₹${initialPayment}`
           : `Payment plan set to INSTALLMENT`;
-        await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, note, user.id);
+        await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, note, user.id, session);
       }
 
       return await this.getAdmissionById(admissionId);
@@ -646,7 +648,7 @@ class AdmissionService {
     }
 
     // Calculate totalPaid efficiently without full aggregation
-    const totalPaid = numericInitialPayment + (isPaidAndLocked ? numericTotalFees : 0);
+    const totalPaid = isPaidAndLocked ? numericTotalFees : numericInitialPayment;
     const remainingAmount = numericTotalFees - totalPaid;
 
     // Return admission directly to avoid expensive aggregation in getAdmissionById
@@ -799,7 +801,7 @@ class AdmissionService {
       : (numericInitialPayment > 0
           ? `Admission created with initial payment`
           : `Admission created with payment plan`);
-    await this._addStatusHistory(enquiry._id, ENQUIRY_STATUSES.CONVERTED, note, user.id);
+    await this._addStatusHistory(enquiry._id, ENQUIRY_STATUSES.CONVERTED, note, user.id, session);
 
     // Auto-convert enquiry status and assign to user
     await Enquiry.findByIdAndUpdate(enquiry._id, {
@@ -810,15 +812,17 @@ class AdmissionService {
     }, { session });
 
     // Return admission directly to avoid expensive aggregation in getAdmissionById
-    // For new admissions, we know totalPaid = 0 and remainingAmount = totalFees
+    // Calculate totalPaid based on payment records created
+    const totalPaid = isPaidAndLocked ? numericTotalFees : numericInitialPayment;
+    const remainingAmount = numericTotalFees - totalPaid;
     return {
       admission: {
         admission: {
           ...admissionDoc.toObject(),
-          remainingAmount: numericTotalFees
+          remainingAmount
         },
-        totalPaid: 0,
-        remainingAmount: numericTotalFees
+        totalPaid,
+        remainingAmount
       },
       alreadyExists: false
     };
