@@ -54,7 +54,7 @@ class EnquiryService {
 
     const filter = this._buildFilter(query, user);
 
-    const [enquiries, totalCount, admissionIds] = await Promise.all([
+    const [enquiries, totalCount] = await Promise.all([
       Enquiry.find(filter)
         .populate('assignedTo', 'name email')
         .populate('createdBy', 'name email')
@@ -62,9 +62,12 @@ class EnquiryService {
         .skip(skip)
         .limit(limit)
         .lean(),
-      Enquiry.countDocuments(filter),
-      Admission.distinct('enquiryId')
+      Enquiry.countDocuments(filter)
     ]);
+
+    // Optimize: Get admission IDs only for current page enquiries
+    const enquiryIds = enquiries.map(e => e._id);
+    const admissionIds = await Admission.distinct('enquiryId', { enquiryId: { $in: enquiryIds } });
 
     const admissionSet = new Set(admissionIds.map(id => id.toString()));
     const today = new Date();
@@ -104,7 +107,7 @@ class EnquiryService {
       ];
     }
 
-    const [enquiries, totalCount, admissionIds] = await Promise.all([
+    const [enquiries, totalCount] = await Promise.all([
       Enquiry.find(filter)
         .populate('assignedTo', 'name email')
         .populate('createdBy', 'name email')
@@ -112,9 +115,12 @@ class EnquiryService {
         .skip(skip)
         .limit(limit)
         .lean(),
-      Enquiry.countDocuments(filter),
-      Admission.distinct('enquiryId')
+      Enquiry.countDocuments(filter)
     ]);
+
+    // Optimize: Get admission IDs only for current page enquiries
+    const enquiryIds = enquiries.map(e => e._id);
+    const admissionIds = await Admission.distinct('enquiryId', { enquiryId: { $in: enquiryIds } });
 
     const admissionSet = new Set(admissionIds.map(id => id.toString()));
     const today = new Date();

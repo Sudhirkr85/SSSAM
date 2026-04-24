@@ -6,6 +6,19 @@ const { ENQUIRY_STATUSES, PAYMENT_TYPES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES,
 class AdmissionService {
   // Helper to add statusHistory entry to enquiry
   async _addStatusHistory(enquiryId, status, note, userId) {
+    const enquiry = await Enquiry.findById(enquiryId);
+    if (!enquiry) return;
+
+    // Check if the last status history entry has the same status and note within 5 seconds
+    const lastEntry = enquiry.statusHistory[enquiry.statusHistory.length - 1];
+    if (lastEntry) {
+      const timeDiff = new Date() - new Date(lastEntry.changedAt);
+      if (lastEntry.status === status && lastEntry.note === note && timeDiff < 5000) {
+        // Skip adding duplicate entry
+        return;
+      }
+    }
+
     await Enquiry.findByIdAndUpdate(enquiryId, {
       $push: {
         statusHistory: {
@@ -153,7 +166,8 @@ class AdmissionService {
   async getAdmissionById(id) {
     const admission = await Admission.findOne({ _id: id, isDeleted: false })
       .populate('enquiryId', 'name mobile')
-      .populate('counselorId', 'name');
+      .populate('counselorId', 'name')
+      .lean();
 
     if (!admission) {
       throw new AppError('Admission not found', 404);
@@ -165,7 +179,7 @@ class AdmissionService {
 
     return {
       admission: {
-        ...admission.toObject(),
+        ...admission,
         remainingAmount
       },
       totalPaid,
@@ -176,7 +190,8 @@ class AdmissionService {
   async getAdmissionByEnquiryId(enquiryId) {
     const admission = await Admission.findOne({ enquiryId, isDeleted: false })
       .populate('enquiryId', 'name mobile')
-      .populate('counselorId', 'name');
+      .populate('counselorId', 'name')
+      .lean();
 
     if (!admission) {
       throw new AppError('Admission not found for this enquiry', 404);
@@ -188,7 +203,7 @@ class AdmissionService {
 
     return {
       admission: {
-        ...admission.toObject(),
+        ...admission,
         remainingAmount
       },
       totalPaid,
@@ -828,17 +843,38 @@ class AdmissionService {
       Admission.countDocuments(filter)
     ]);
 
-    // Calculate remaining amount for each admission dynamically
-    const admissionsWithRemaining = await Promise.all(
-      admissions.map(async (admission) => {
-        const totalPaid = await this._calculateTotalPaid(admission._id);
-        const remainingAmount = admission.totalFees - totalPaid;
-        return {
-          ...admission,
-          remainingAmount
-        };
-      })
+    // Optimize: Calculate totalPaid for all admissions in a single aggregation
+    const admissionIds = admissions.map(a => a._id);
+    const paymentResults = await Payment.aggregate([
+      {
+        $match: {
+          admissionId: { $in: admissionIds },
+          status: PAYMENT_STATUSES.SUCCESS,
+          type: { $ne: PAYMENT_RECORD_TYPES.REFUND }
+        }
+      },
+      {
+        $group: {
+          _id: '$admissionId',
+          totalPaid: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    // Create a map for quick lookup
+    const paymentMap = new Map(
+      paymentResults.map(r => [r._id.toString(), r.totalPaid])
     );
+
+    // Calculate remaining amount for each admission
+    const admissionsWithRemaining = admissions.map(admission => {
+      const totalPaid = paymentMap.get(admission._id.toString()) || 0;
+      const remainingAmount = admission.totalFees - totalPaid;
+      return {
+        ...admission,
+        remainingAmount
+      };
+    });
 
     return {
       admissions: admissionsWithRemaining,
