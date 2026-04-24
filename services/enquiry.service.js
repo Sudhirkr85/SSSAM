@@ -98,7 +98,10 @@ class EnquiryService {
     const skip = (page - 1) * limit;
 
     const filter = { isDeleted: false };
-    if (query.status) filter.status = query.status;
+    if (query.status) {
+      const statuses = query.status.split(',').map(s => s.trim());
+      filter.status = { $in: statuses };
+    }
     if (query.search) {
       filter.$or = [
         { name: { $regex: query.search, $options: 'i' } },
@@ -379,7 +382,10 @@ class EnquiryService {
       });
     }
 
-    if (query.status) filter.status = query.status;
+    if (query.status) {
+      const statuses = query.status.split(',').map(s => s.trim());
+      filter.status = { $in: statuses };
+    }
 
     if (query.search) {
       const searchFilter = {

@@ -348,7 +348,7 @@ class AdmissionService {
 
   async setPaymentPlan(admissionId, paymentData, user) {
     return await this.withTransaction(async (session) => {
-      const { paymentType, paymentMethod, installments = [], paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
+      const { paymentType, paymentMethod, installments = [], paymentDate, initialPayment = 0, initialPaymentMode, fullPaymentDueDate } = paymentData;
 
       const admission = await Admission.findOne({ _id: admissionId, isDeleted: false }).session(session);
       if (!admission) {
@@ -385,6 +385,7 @@ class AdmissionService {
         admission.paymentType = PAYMENT_TYPES.ONE_TIME;
         admission.paymentMethod = paymentMethod;
         admission.installments = [];
+        admission.fullPaymentDueDate = fullPaymentDueDate ? new Date(fullPaymentDueDate) : null;
         admission.isLocked = true;
         await admission.save({ session });
 
@@ -609,6 +610,7 @@ class AdmissionService {
     existingAdmission.paymentType = paymentType;
     existingAdmission.paymentMethod = isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null);
     existingAdmission.installments = formattedInstallments;
+    existingAdmission.fullPaymentDueDate = paymentType === PAYMENT_TYPES.ONE_TIME ? (fullPaymentDueDate ? new Date(fullPaymentDueDate) : null) : null;
     existingAdmission.isLocked = isPaidAndLocked;
     await existingAdmission.save({ session });
 
@@ -668,7 +670,7 @@ class AdmissionService {
   }
 
   async _createNewAdmission(enquiry, paymentData, user, session) {
-    const { paymentType, paymentMethod, installments = [], totalFees, registrationAmount, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
+    const { paymentType, paymentMethod, installments = [], totalFees, registrationAmount, paymentDate, initialPayment = 0, initialPaymentMode, fullPaymentDueDate } = paymentData;
 
     if (!Object.values(PAYMENT_TYPES).includes(paymentType)) {
       throw new AppError(`Invalid payment type. Must be ${PAYMENT_TYPES.ONE_TIME} or ${PAYMENT_TYPES.INSTALLMENT}`, 400);
@@ -769,6 +771,7 @@ class AdmissionService {
       paymentType,
       paymentMethod: isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null),
       installments: formattedInstallments,
+      fullPaymentDueDate: paymentType === PAYMENT_TYPES.ONE_TIME ? (fullPaymentDueDate ? new Date(fullPaymentDueDate) : null) : null,
       isLocked: isPaidAndLocked
     }], { session });
 

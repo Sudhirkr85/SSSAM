@@ -104,6 +104,11 @@ const setPaymentPlanValidation = [
     .isISO8601()
     .withMessage('Please provide a valid payment date')
     .toDate(),
+  body('fullPaymentDueDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Please provide a valid due date')
+    .toDate(),
   body('initialPayment')
     .optional()
     .isFloat({ min: 1 })
@@ -166,6 +171,11 @@ const createAdmissionFromEnquiryValidation = [
     .optional()
     .isISO8601()
     .withMessage('Please provide a valid date')
+    .toDate(),
+  body('fullPaymentDueDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Please provide a valid due date')
     .toDate(),
   body('initialPayment')
     .if(body('paymentType').equals(PAYMENT_TYPES.ONE_TIME))

@@ -112,8 +112,10 @@ const listEnquiriesValidation = [
     .optional()
     .custom((value) => {
       if (!value || value === '') return true;
-      if (!STATUS_LIST.includes(value)) {
-        throw new Error(`Status must be one of: ${STATUS_LIST.join(', ')}`);
+      const statuses = value.split(',').map(s => s.trim());
+      const invalidStatuses = statuses.filter(s => !STATUS_LIST.includes(s));
+      if (invalidStatuses.length > 0) {
+        throw new Error(`Invalid status(es): ${invalidStatuses.join(', ')}. Must be one of: ${STATUS_LIST.join(', ')}`);
       }
       return true;
     }),
