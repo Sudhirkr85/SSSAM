@@ -536,7 +536,8 @@ class AdmissionService {
       if (installments.length > 0) {
         throw new AppError('ONE_TIME payment type should not have installments', 400);
       }
-      isPaidAndLocked = true;
+      // Only mark as paid and locked if registrationAmount equals totalFees
+      isPaidAndLocked = (numericRegistrationAmount === numericTotalFees);
     } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
       if (!installments || installments.length === 0) {
         throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
@@ -690,7 +691,8 @@ class AdmissionService {
       if (installments.length > 0) {
         throw new AppError('ONE_TIME payment type should not have installments', 400);
       }
-      isPaidAndLocked = true;
+      // Only mark as paid and locked if registrationAmount equals totalFees
+      isPaidAndLocked = (numericRegistrationAmount === numericTotalFees);
     } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
       if (!installments || installments.length === 0) {
         throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
@@ -783,11 +785,11 @@ class AdmissionService {
         status: PAYMENT_STATUSES.SUCCESS,
         createdBy: user.id
       }], { session });
-    } else if (numericInitialPayment > 0) {
+    } else if (numericRegistrationAmount > 0) {
       await Payment.create([{
         admissionId: admissionDoc._id,
-        amount: numericInitialPayment,
-        paymentMode: initialPaymentMode,
+        amount: numericRegistrationAmount,
+        paymentMode: paymentMethod,
         paymentDate: actualPaymentDate,
         type: PAYMENT_RECORD_TYPES.INITIAL,
         status: PAYMENT_STATUSES.SUCCESS,
