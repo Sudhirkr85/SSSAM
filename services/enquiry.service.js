@@ -156,7 +156,8 @@ class EnquiryService {
     }
 
     // Validation rules
-    if (status && !note) {
+    // Note is required for status changes except ADMISSION_PROCESS (system-initiated)
+    if (status && !note && status !== ENQUIRY_STATUSES.ADMISSION_PROCESS) {
       throw new AppError('Note is required when updating status', 400);
     }
 
