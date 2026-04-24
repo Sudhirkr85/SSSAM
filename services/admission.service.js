@@ -503,10 +503,15 @@ class AdmissionService {
   }
 
   async _updateExistingAdmission(existingAdmission, paymentData, user, session) {
-    const { paymentType, paymentMethod, installments = [], totalFees, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
+    const { paymentType, paymentMethod, installments = [], totalFees, registrationAmount, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
     let formattedInstallments = [];
     let isPaidAndLocked = false;
     const actualPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
+
+    // Convert to numbers for consistent use
+    const numericInitialPayment = Number(initialPayment) || 0;
+    const numericTotalFees = Number(totalFees) || 0;
+    const numericRegistrationAmount = Number(registrationAmount) || numericInitialPayment;
 
     if (paymentType === PAYMENT_TYPES.ONE_TIME) {
       if (installments.length > 0) {
@@ -522,7 +527,6 @@ class AdmissionService {
       const now = new Date();
       const dueDates = new Set();
       let previousDueDate = null;
-      const numericInitialPayment = Number(initialPayment) || 0;
 
       for (const inst of installments) {
         const instAmount = Number(inst.amount) || 0;
@@ -559,7 +563,6 @@ class AdmissionService {
       }
 
       const totalInstallmentAmount = installments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
-      const numericTotalFees = Number(totalFees) || 0;
       const totalPlanned = numericInitialPayment + totalInstallmentAmount;
 
       if (totalPlanned !== numericTotalFees) {
@@ -582,6 +585,7 @@ class AdmissionService {
     }
 
     existingAdmission.totalFees = numericTotalFees;
+    existingAdmission.registrationAmount = numericRegistrationAmount;
     existingAdmission.paymentType = paymentType;
     existingAdmission.paymentMethod = isPaidAndLocked ? paymentMethod : (numericInitialPayment > 0 ? initialPaymentMode : null);
     existingAdmission.installments = formattedInstallments;
