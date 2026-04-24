@@ -86,18 +86,22 @@ class ReportService {
     // Build date filters dynamically
     const paymentDateFilter = hasDateFilter ? { paymentDate: { $gte: startDate, $lte: endDate } } : {};
 
-    const [allAdmissions, paymentsInPeriod, totalRevenueAgg, periodRevenueAgg] = await Promise.all([
+    const [allAdmissions, paymentsInPeriod, totalRevenueAgg, periodRevenueAgg, allPaymentsAgg] = await Promise.all([
       Admission.find(),
       Payment.find(paymentDateFilter).populate('createdBy', 'name'),
       Payment.aggregate([{ $group: { _id: null, total: { $sum: '$amount' } } }]),
       hasDateFilter
         ? Payment.aggregate([{ $match: paymentDateFilter }, { $group: { _id: null, total: { $sum: '$amount' } } }])
-        : Promise.resolve([{ total: 0 }])
+        : Promise.resolve([{ total: 0 }]),
+      Payment.aggregate([
+        { $match: { status: 'success', type: { $ne: 'refund' } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ])
     ]);
 
     const totalFeesExpected = allAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
-    const totalPaid = allAdmissions.reduce((sum, a) => sum + a.paidAmount, 0);
-    const totalPending = allAdmissions.reduce((sum, a) => sum + a.pendingAmount, 0);
+    const totalPaid = allPaymentsAgg.length > 0 ? allPaymentsAgg[0].total : 0;
+    const totalPending = totalFeesExpected - totalPaid;
 
     const totalRevenueCollected = totalRevenueAgg.length > 0 ? totalRevenueAgg[0].total : 0;
     const revenueInPeriod = hasDateFilter
@@ -142,15 +146,15 @@ class ReportService {
           Payment.aggregate([
             { $lookup: { from: 'admissions', localField: 'admissionId', foreignField: '_id', as: 'admission' } },
             { $unwind: '$admission' },
-            { $match: { 'admission.counselorId': counselor._id } },
+            { $match: { 'admission.counselorId': counselor._id, status: 'success', type: { $ne: 'refund' } } },
             { $group: { _id: null, totalRevenue: { $sum: '$amount' } } }
           ])
         ]);
 
         // Calculate all-time totals
         const allTimeTotalFees = allTimeAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
-        const allTimeTotalPaid = allTimeAdmissions.reduce((sum, a) => sum + a.paidAmount, 0);
-        const allTimeRevenue = allTimePaymentsRevenue.length > 0 ? allTimePaymentsRevenue[0].totalRevenue : 0;
+        const allTimeTotalPaid = allTimePaymentsRevenue.length > 0 ? allTimePaymentsRevenue[0].totalRevenue : 0;
+        const allTimeRevenue = allTimeTotalPaid;
 
         // Get period stats if date filter applied
         let periodStats = null;
@@ -175,7 +179,7 @@ class ReportService {
               admissionDate: { $gte: startDate, $lte: endDate }
             }),
             Payment.aggregate([
-              { $match: { paymentDate: { $gte: startDate, $lte: endDate } } },
+              { $match: { paymentDate: { $gte: startDate, $lte: endDate }, status: 'success', type: { $ne: 'refund' } } },
               { $lookup: { from: 'admissions', localField: 'admissionId', foreignField: '_id', as: 'admission' } },
               { $unwind: '$admission' },
               { $match: { 'admission.counselorId': counselor._id } },
@@ -184,8 +188,8 @@ class ReportService {
           ]);
 
           const periodTotalFees = periodAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
-          const periodTotalPaid = periodAdmissions.reduce((sum, a) => sum + a.paidAmount, 0);
-          const periodRevenue = periodPaymentsRevenue.length > 0 ? periodPaymentsRevenue[0].totalRevenue : 0;
+          const periodTotalPaid = periodPaymentsRevenue.length > 0 ? periodPaymentsRevenue[0].totalRevenue : 0;
+          const periodRevenue = periodTotalPaid;
           const periodConversionRate = periodAssignedEnquiries > 0
             ? ((periodConvertedEnquiries / periodAssignedEnquiries) * 100).toFixed(2)
             : 0;
@@ -247,7 +251,7 @@ class ReportService {
       { $sort: { totalEnquiries: -1 } }
     ]);
 
-    // Get admissions and revenue by course
+    // Get admissions by course
     const admissionStats = await Admission.aggregate([
       {
         $lookup: {
@@ -262,8 +266,38 @@ class ReportService {
         $group: {
           _id: '$enquiry.courseInterested',
           admissions: { $sum: 1 },
-          totalFees: { $sum: '$totalFees' },
-          paidAmount: { $sum: '$paidAmount' }
+          totalFees: { $sum: '$totalFees' }
+        }
+      }
+    ]);
+
+    // Get payments by course (via admission)
+    const paymentStats = await Payment.aggregate([
+      {
+        $lookup: {
+          from: 'admissions',
+          localField: 'admissionId',
+          foreignField: '_id',
+          as: 'admission'
+        }
+      },
+      { $unwind: '$admission' },
+      {
+        $lookup: {
+          from: 'enquiries',
+          localField: 'admission.enquiryId',
+          foreignField: '_id',
+          as: 'enquiry'
+        }
+      },
+      { $unwind: '$enquiry' },
+      {
+        $match: { status: 'success', type: { $ne: 'refund' } }
+      },
+      {
+        $group: {
+          _id: '$enquiry.courseInterested',
+          paidAmount: { $sum: '$amount' }
         }
       }
     ]);
@@ -272,21 +306,24 @@ class ReportService {
     const admissionMap = admissionStats.reduce((map, stat) => {
       map[stat._id] = {
         admissions: stat.admissions,
-        totalFees: stat.totalFees,
-        paidAmount: stat.paidAmount,
-        pendingAmount: stat.totalFees - stat.paidAmount
+        totalFees: stat.totalFees
       };
       return map;
     }, {});
 
-    // Merge enquiry stats with admission stats
+    const paymentMap = paymentStats.reduce((map, stat) => {
+      map[stat._id] = stat.paidAmount;
+      return map;
+    }, {});
+
+    // Merge enquiry stats with admission and payment stats
     const courseStats = enquiryStats.map(enq => {
       const adm = admissionMap[enq._id] || {
         admissions: 0,
-        totalFees: 0,
-        paidAmount: 0,
-        pendingAmount: 0
+        totalFees: 0
       };
+      const paid = paymentMap[enq._id] || 0;
+      const pendingAmount = adm.totalFees - paid;
 
       return {
         course: enq._id,
@@ -294,9 +331,9 @@ class ReportService {
         converted: enq.converted,
         admissions: adm.admissions,
         totalFees: adm.totalFees,
-        paidAmount: adm.paidAmount,
-        pendingAmount: adm.pendingAmount,
-        revenue: adm.paidAmount,
+        paidAmount: paid,
+        pendingAmount: pendingAmount,
+        revenue: paid,
         conversionRate: enq.totalEnquiries > 0
           ? ((enq.converted / enq.totalEnquiries) * 100).toFixed(2)
           : 0
