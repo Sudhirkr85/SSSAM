@@ -45,10 +45,10 @@ class AdmissionController {
   });
 
   createAdmissionFromEnquiry = catchAsync(async (req, res) => {
-    const { paymentType, installments, totalFees, paymentMethod, registrationAmount } = req.body;
+    const { paymentType, installments, totalFees, paymentMethod, registrationAmount, initialPayment, initialPaymentMode, paymentDate } = req.body;
     const result = await admissionService.createAdmissionFromEnquiry(
       req.params.enquiryId,
-      { paymentType, installments, totalFees, paymentMethod, registrationAmount },
+      { paymentType, installments, totalFees, paymentMethod, registrationAmount, initialPayment, initialPaymentMode, paymentDate },
       req.user
     );
     const message = result.alreadyExists

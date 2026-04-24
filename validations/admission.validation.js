@@ -168,15 +168,20 @@ const createAdmissionFromEnquiryValidation = [
     .withMessage('Please provide a valid date')
     .toDate(),
   body('initialPayment')
+    .if(body('paymentType').equals(PAYMENT_TYPES.ONE_TIME))
+    .custom((value) => value === undefined || value === null || value === '')
+    .withMessage('Initial payment is not allowed for ONE_TIME payment type')
+    .if(body('paymentType').equals(PAYMENT_TYPES.INSTALLMENT))
     .optional()
     .isFloat({ min: 1 })
     .withMessage('Initial payment must be greater than 0'),
   body('initialPaymentMode')
-    .if(body('initialPayment').custom((value) => value > 0))
+    .optional()
+    .if((value, { req }) => req.body.paymentType === PAYMENT_TYPES.INSTALLMENT && req.body.initialPayment > 0)
     .notEmpty()
-    .withMessage('Payment mode is required when initial payment is provided')
+    .withMessage('Initial payment mode is required when initial payment is provided')
     .isIn(Object.values(PAYMENT_MODES))
-    .withMessage(`Payment mode must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
+    .withMessage(`Initial payment mode must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
   body('installments')
     .if(body('paymentType').equals(PAYMENT_TYPES.INSTALLMENT))
     .notEmpty()
