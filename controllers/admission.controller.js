@@ -9,8 +9,8 @@ class AdmissionController {
   });
 
   getAdmission = catchAsync(async (req, res) => {
-    const admission = await admissionService.getAdmissionById(req.params.id);
-    return successResponse(res, { admission }, 'Admission retrieved successfully');
+    const result = await admissionService.getAdmissionById(req.params.id);
+    return successResponse(res, result, 'Admission retrieved successfully');
   });
 
   getAdmissionByEnquiry = catchAsync(async (req, res) => {
