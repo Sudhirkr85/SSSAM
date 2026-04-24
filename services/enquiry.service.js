@@ -161,6 +161,18 @@ class EnquiryService {
       throw new AppError('Note is required when updating status', 400);
     }
 
+    // Allow reverting from ADMISSION_PROCESS to previous statuses (cancel option)
+    const canRevertFromAdmissionProcess = [
+      ENQUIRY_STATUSES.INTERESTED,
+      ENQUIRY_STATUSES.FOLLOW_UP,
+      ENQUIRY_STATUSES.NO_RESPONSE,
+      ENQUIRY_STATUSES.CONTACTED
+    ].includes(status);
+
+    if (enquiry.status === ENQUIRY_STATUSES.ADMISSION_PROCESS && status && !canRevertFromAdmissionProcess) {
+      throw new AppError('Can only revert ADMISSION_PROCESS to INTERESTED, FOLLOW_UP, NO_RESPONSE, or CONTACTED', 400);
+    }
+
     if (status === ENQUIRY_STATUSES.FOLLOW_UP && !followUpDate) {
       throw new AppError('Follow-up date is required when status is FOLLOW_UP', 400);
     }
@@ -188,12 +200,16 @@ class EnquiryService {
     }
 
     // Update status - add to statusHistory
-    if (status && status !== enquiry.status) {
+    // Allow multiple FOLLOW_UP and NO_RESPONSE entries (for recurring follow-ups/no responses), but skip duplicate for other statuses
+    const isSameStatus = status === enquiry.status;
+    const allowDuplicate = status === ENQUIRY_STATUSES.FOLLOW_UP || status === ENQUIRY_STATUSES.NO_RESPONSE; // Allow multiple FOLLOW_UP and NO_RESPONSE
+
+    if (status && (!isSameStatus || allowDuplicate)) {
       updateOps.$set.status = status;
       updateOps.$push = updateOps.$push || {};
       updateOps.$push.statusHistory = {
         status: status,
-        note: note || '',
+        note: note || `Follow-up scheduled for ${followUpDate || new Date().toISOString().split('T')[0]}`,
         changedBy: user.id,
         changedAt: new Date()
       };
