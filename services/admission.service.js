@@ -476,7 +476,9 @@ class AdmissionService {
 
   async createAdmissionFromEnquiry(enquiryId, paymentData, user) {
     return await this.withTransaction(async (session) => {
-      const { paymentType, paymentMethod, installments = [], totalFees, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
+      const { paymentType, paymentMethod, installments = [], totalFees, registrationAmount, paymentDate, initialPayment = 0, initialPaymentMode } = paymentData;
+      // Use registrationAmount as initialPayment if not provided
+      const effectiveInitialPayment = initialPayment || registrationAmount || 0;
 
       const enquiry = await Enquiry.findById(enquiryId).session(session);
       if (!enquiry) {
@@ -509,7 +511,7 @@ class AdmissionService {
     const actualPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
 
     // Convert to numbers for consistent use
-    const numericInitialPayment = Number(initialPayment) || 0;
+    const numericInitialPayment = Number(initialPayment) || Number(registrationAmount) || 0;
     const numericTotalFees = Number(totalFees) || 0;
     const numericRegistrationAmount = Number(registrationAmount) || numericInitialPayment;
 
@@ -656,7 +658,7 @@ class AdmissionService {
     const actualPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
 
     // Convert to numbers at function level for use across all payment types
-    const numericInitialPayment = Number(initialPayment) || 0;
+    const numericInitialPayment = Number(initialPayment) || Number(registrationAmount) || 0;
     const numericTotalFees = Number(totalFees) || 0;
     const numericRegistrationAmount = Number(registrationAmount) || numericInitialPayment;
 
