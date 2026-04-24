@@ -248,7 +248,7 @@ class AdmissionService {
     admission.totalFees = Number(totalFees) || 0;
     await admission.save();
 
-    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Total fees updated from ₹${oldFees} to ₹${totalFees}`, user.id);
+    await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Total fees updated`, user.id);
 
     return await this.getAdmissionById(admissionId);
   }
@@ -382,7 +382,7 @@ class AdmissionService {
           createdBy: user.id
         }], { session });
 
-        await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Full payment of ₹${admission.totalFees} collected via ${paymentMethod}`, user.id);
+        await this._addStatusHistory(admission.enquiryId, ENQUIRY_STATUSES.CONVERTED, `Full payment collected via ${paymentMethod}`, user.id);
       } else if (paymentType === PAYMENT_TYPES.INSTALLMENT) {
         if (!installments || installments.length === 0) {
           throw new AppError('INSTALLMENT payment type requires at least one installment', 400);
@@ -617,13 +617,8 @@ class AdmissionService {
       }], { session });
     }
 
-    // Add statusHistory entry
-    const note = isPaidAndLocked
-      ? `Full payment of ₹${numericTotalFees} collected`
-      : (numericInitialPayment > 0
-          ? `Payment plan updated with initial payment of ₹${numericInitialPayment}`
-          : `Payment plan updated`);
-    await this._addStatusHistory(existingAdmission.enquiryId, ENQUIRY_STATUSES.CONVERTED, note, user.id);
+    // Note: Don't add statusHistory for updates - only for new admissions
+    // This prevents duplicate entries when user clicks multiple times
 
     // Get enquiry to check if it needs assignment
     const enquiry = await Enquiry.findById(existingAdmission.enquiryId).session(session);
@@ -773,9 +768,9 @@ class AdmissionService {
 
     // Add statusHistory entry
     const note = isPaidAndLocked
-      ? `Admission created with full payment of ₹${numericTotalFees}`
+      ? `Admission created with full payment`
       : (numericInitialPayment > 0
-          ? `Admission created with initial payment of ₹${numericInitialPayment}`
+          ? `Admission created with initial payment`
           : `Admission created with payment plan`);
     await this._addStatusHistory(enquiry._id, ENQUIRY_STATUSES.CONVERTED, note, user.id);
 
