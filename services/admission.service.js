@@ -630,8 +630,20 @@ class AdmissionService {
       }, { session });
     }
 
+    // Calculate totalPaid efficiently without full aggregation
+    const totalPaid = numericInitialPayment + (isPaidAndLocked ? numericTotalFees : 0);
+    const remainingAmount = numericTotalFees - totalPaid;
+
+    // Return admission directly to avoid expensive aggregation in getAdmissionById
     return {
-      admission: await this.getAdmissionById(existingAdmission._id),
+      admission: {
+        admission: {
+          ...existingAdmission.toObject(),
+          remainingAmount
+        },
+        totalPaid,
+        remainingAmount
+      },
       alreadyExists: true,
       updated: true
     };
@@ -782,8 +794,17 @@ class AdmissionService {
       }
     }, { session });
 
+    // Return admission directly to avoid expensive aggregation in getAdmissionById
+    // For new admissions, we know totalPaid = 0 and remainingAmount = totalFees
     return {
-      admission: await this.getAdmissionById(admissionDoc._id),
+      admission: {
+        admission: {
+          ...admissionDoc.toObject(),
+          remainingAmount: numericTotalFees
+        },
+        totalPaid: 0,
+        remainingAmount: numericTotalFees
+      },
       alreadyExists: false
     };
   }

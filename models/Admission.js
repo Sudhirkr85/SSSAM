@@ -130,7 +130,7 @@ const admissionSchema = new mongoose.Schema({
 });
 
 
-admissionSchema.index({ enquiryId: 1 });
+// Note: enquiryId index is automatically created by unique: true
 admissionSchema.index({ counselorId: 1 });
 admissionSchema.index({ createdAt: -1 });
 admissionSchema.index({ isLocked: 1 });
