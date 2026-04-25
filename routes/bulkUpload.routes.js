@@ -45,7 +45,7 @@ router.post(
     logger.debug('POST /upload/enquiries route hit');
     next();
   },
-  roleMiddleware(ROLES.ADMIN),
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   upload.single('file'),
   bulkUploadController.uploadEnquiries
 );

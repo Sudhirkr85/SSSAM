@@ -244,10 +244,14 @@ class EnquiryService {
   }
 
   async bulkUpload(dataArray, user) {
-    logger.debug('Bulk upload started', { rows: dataArray.length, userId: user.id, userName: user.name });
+    logger.debug('Bulk upload started', { rows: dataArray.length, userId: user.id, userName: user.name, userRole: user.role });
 
     const created = [];
     const errors = [];
+
+    // Determine assignedTo based on user role
+    const isAdmin = user.role === ROLES.ADMIN;
+    const assignedTo = isAdmin ? null : user.id;
 
     // Helper function to normalize field names (case-insensitive)
     const getField = (data, ...possibleNames) => {
@@ -307,14 +311,14 @@ class EnquiryService {
           if (!email || email === '') email = null;
         }
 
-        logger.debug('Creating enquiry in DB', { row: i + 1 });
+        logger.debug('Creating enquiry in DB', { row: i + 1, assignedTo });
         const enquiry = await Enquiry.create({
           name: name.trim(),
           mobile,
           email,
           courseInterested: course.trim(),
           status: status || ENQUIRY_STATUSES.NEW,
-          assignedTo: null,
+          assignedTo: assignedTo,
           createdBy: user.id,
           statusHistory: [{
             status: status || ENQUIRY_STATUSES.NEW,
@@ -332,7 +336,7 @@ class EnquiryService {
       }
     }
 
-    logger.info('Bulk upload completed', { created: created.length, errors: errors.length });
+    logger.info('Bulk upload completed', { created: created.length, errors: errors.length, assignedTo });
     return {
       successCount: created.length,
       failedCount: errors.length,

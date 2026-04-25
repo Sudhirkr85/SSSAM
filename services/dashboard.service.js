@@ -1,5 +1,5 @@
 const { Enquiry, Admission, Payment } = require('../models');
-const { ENQUIRY_STATUSES } = require('../config/constants');
+const { ENQUIRY_STATUSES, ROLES } = require('../config/constants');
 
 class DashboardService {
   // Get date ranges for filtering
@@ -282,25 +282,202 @@ class DashboardService {
     };
   }
 
-  // Get full dashboard
+  // Get full dashboard with role-based filtering
   async getDashboard(user) {
-    const [revenue, enquiries, additional, admissions, payments, todayCalls] = await Promise.all([
-      this.getRevenueStats(),
-      this.getEnquiryStats(),
-      this.getAdditionalStats(),
-      this.getAdmissionStats(),
-      this.getPaymentStats(),
-      this.getTodayCalls(user)
+    const isAdmin = user.role === ROLES.ADMIN;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Build base filter for role-based access
+    const enquiryFilter = { isDeleted: false };
+    const admissionFilter = { isDeleted: false };
+    
+    if (!isAdmin) {
+      // Counselor: only see their assigned enquiries and admissions
+      enquiryFilter.$or = [
+        { assignedTo: user.id },
+        { assignedTo: null }
+      ];
+      admissionFilter.counselorId = user.id;
+    }
+
+    // Get total enquiries
+    const totalEnquiries = await Enquiry.countDocuments(enquiryFilter);
+
+    // Get admission stats
+    const [totalAdmissions, allAdmissions] = await Promise.all([
+      Admission.countDocuments(admissionFilter),
+      Admission.find(admissionFilter).lean()
     ]);
 
-    return {
-      revenue,
-      enquiries,
-      ...additional,
-      admissions,
-      payments,
-      todayCalls
+    // Calculate active students (admissions with status 'active')
+    const activeStudents = allAdmissions.filter(a => a.status === 'active').length;
+
+    // Calculate revenue stats
+    const admissionIds = allAdmissions.map(a => a._id);
+    
+    // Get all payments for these admissions
+    const paymentFilter = { 
+      admissionId: { $in: admissionIds },
+      isDeleted: false,
+      status: 'success',
+      type: { $ne: 'refund' }
     };
+
+    const [allPayments] = await Promise.all([
+      Payment.find(paymentFilter).lean()
+    ]);
+
+    const totalPaid = allPayments.reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate pending payments (remaining amount)
+    let pendingPayments = 0;
+    for (const admission of allAdmissions) {
+      const admissionPayments = allPayments.filter(p => p.admissionId.toString() === admission._id.toString());
+      const paid = admissionPayments.reduce((sum, p) => sum + p.amount, 0);
+      pendingPayments += (admission.totalFees - paid);
+    }
+
+    // Get monthly revenue breakdown (last 6 months)
+    const monthlyRevenue = {};
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      
+      const monthPayments = await Payment.aggregate([
+        {
+          $match: {
+            admissionId: { $in: admissionIds },
+            isDeleted: false,
+            status: 'success',
+            type: { $ne: 'refund' },
+            paymentDate: { $gte: monthStart, $lte: monthEnd }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$amount' }
+          }
+        }
+      ]);
+      
+      const monthTotal = monthPayments.length > 0 ? monthPayments[0].total : 0;
+      monthlyRevenue[monthNames[date.getMonth()]] = `₹${monthTotal.toLocaleString()}`;
+    }
+
+    // Get today's calls count
+    const todayCallsFilter = {
+      ...enquiryFilter,
+      followUpDate: { $gte: today, $lt: tomorrow },
+      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
+    };
+    const todayCalls = await Enquiry.countDocuments(todayCallsFilter);
+
+    // Get pending followups
+    const pendingFollowupsFilter = {
+      ...enquiryFilter,
+      followUpDate: { $lt: today },
+      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
+    };
+    const pendingFollowups = await Enquiry.countDocuments(pendingFollowupsFilter);
+
+    // Get recent enquiries (last 5)
+    const recentEnquiries = await Enquiry.find(enquiryFilter)
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('name courseInterested status createdAt')
+      .lean();
+
+    const formattedRecentEnquiries = recentEnquiries.map(e => ({
+      name: e.name,
+      course: e.courseInterested,
+      status: e.status,
+      date: this._formatDate(e.createdAt)
+    }));
+
+    // Get upcoming followups (next 5)
+    const upcomingFollowupsFilter = {
+      ...enquiryFilter,
+      followUpDate: { $gte: today },
+      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
+    };
+    const upcomingFollowups = await Enquiry.find(upcomingFollowupsFilter)
+      .sort({ followUpDate: 1 })
+      .limit(5)
+      .select('name mobile followUpDate')
+      .lean();
+
+    const formattedUpcomingFollowups = upcomingFollowups.map(e => ({
+      name: e.name,
+      time: this._formatTime(e.followUpDate),
+      phone: e.mobile,
+      date: this._formatDateShort(e.followUpDate)
+    }));
+
+    // Get source breakdown
+    const sourceBreakdown = await Enquiry.aggregate([
+      { $match: enquiryFilter },
+      {
+        $group: {
+          _id: '$source',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const formattedSourceBreakdown = {};
+    sourceBreakdown.forEach(s => {
+      if (s._id) {
+        formattedSourceBreakdown[s._id] = s.count;
+      }
+    });
+
+    return {
+      totalEnquiries,
+      admissions: {
+        totalAdmissions,
+        activeStudents
+      },
+      revenue: {
+        totalPaid,
+        pendingPayments,
+        monthly: monthlyRevenue
+      },
+      todayCalls,
+      pendingFollowups,
+      recentEnquiries: formattedRecentEnquiries,
+      upcomingFollowups: formattedUpcomingFollowups,
+      sourceBreakdown: formattedSourceBreakdown
+    };
+  }
+
+  _formatDate(date) {
+    const d = new Date(date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (d >= today) return 'Today';
+    if (d >= yesterday) return 'Yesterday';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  _formatDateShort(date) {
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+  }
+
+  _formatTime(date) {
+    const d = new Date(date);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   }
 }
 
