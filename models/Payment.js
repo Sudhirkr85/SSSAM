@@ -24,6 +24,10 @@ const paymentSchema = new mongoose.Schema({
     default: Date.now,
     validate: {
       validator: function(value) {
+        // Skip future date check for refunds
+        if (this.type === PAYMENT_RECORD_TYPES.REFUND) {
+          return true;
+        }
         // Allow past dates for records, but not future dates for actual payments
         return value <= new Date();
       },

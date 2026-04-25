@@ -29,27 +29,29 @@ const createPaymentValidation = [
     .isIn(Object.values(PAYMENT_MODES))
     .withMessage(`Payment mode must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
 
-  body('paymentDate')
-    .optional()
-    .isISO8601()
-    .withMessage('Please provide a valid payment date')
-    .toDate()
-    .custom((value, { req }) => {
-      // Skip future date check for refunds
-      if (req.body.type === 'refund') {
-        return true;
-      }
-      if (value && value > new Date()) {
-        throw new Error('Payment date cannot be in the future');
-      }
-      return true;
-    }),
-
   body('type')
     .notEmpty()
     .withMessage('Payment type is required')
     .isIn(Object.values(PAYMENT_RECORD_TYPES))
     .withMessage(`Type must be one of: ${Object.values(PAYMENT_RECORD_TYPES).join(', ')}`),
+
+  body('paymentDate')
+    .optional()
+    .custom((value, { req }) => {
+      // Skip validation entirely for refunds
+      if (req.body.type === 'refund') {
+        return true;
+      }
+      if (value) {
+        if (!value.match(/^\d{4}-\d{2}-\d{2}/)) {
+          throw new Error('Please provide a valid payment date');
+        }
+        if (new Date(value) > new Date()) {
+          throw new Error('Payment date cannot be in the future');
+        }
+      }
+      return true;
+    }),
 
   body('status')
     .optional()
@@ -121,26 +123,28 @@ const updatePaymentValidation = [
     .isIn(Object.values(PAYMENT_MODES))
     .withMessage(`Payment mode must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
 
-  body('paymentDate')
-    .optional()
-    .isISO8601()
-    .withMessage('Please provide a valid payment date')
-    .toDate()
-    .custom((value, { req }) => {
-      // Skip future date check for refunds
-      if (req.body.type === 'refund') {
-        return true;
-      }
-      if (value && value > new Date()) {
-        throw new Error('Payment date cannot be in the future');
-      }
-      return true;
-    }),
-
   body('type')
     .optional()
     .isIn(Object.values(PAYMENT_RECORD_TYPES))
     .withMessage(`Type must be one of: ${Object.values(PAYMENT_RECORD_TYPES).join(', ')}`),
+
+  body('paymentDate')
+    .optional()
+    .custom((value, { req }) => {
+      // Skip validation entirely for refunds
+      if (req.body.type === 'refund') {
+        return true;
+      }
+      if (value) {
+        if (!value.match(/^\d{4}-\d{2}-\d{2}/)) {
+          throw new Error('Please provide a valid payment date');
+        }
+        if (new Date(value) > new Date()) {
+          throw new Error('Payment date cannot be in the future');
+        }
+      }
+      return true;
+    }),
 
   body('status')
     .optional()
