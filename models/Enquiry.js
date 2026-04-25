@@ -14,7 +14,7 @@ const statusHistorySchema = new mongoose.Schema({
   changedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false
   },
   changedAt: {
     type: Date,
@@ -99,7 +99,7 @@ const enquirySchema = new mongoose.Schema({
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false
   },
   createdAt: {
     type: Date,

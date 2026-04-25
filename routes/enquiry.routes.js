@@ -19,6 +19,14 @@ const {
   publicEnquiryValidation
 } = require('../validations');
 
+// POST /public/enquiries - Public endpoint for website submissions (no auth required)
+router.post(
+  '/public/enquiries',
+  publicEnquiryValidation,
+  validateRequest,
+  enquiryController.createPublicEnquiry
+);
+
 router.use(authMiddleware);
 
 // POST /enquiries - Create new enquiry

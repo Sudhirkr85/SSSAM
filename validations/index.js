@@ -3,7 +3,8 @@ const {
   createEnquiryValidation,
   updateEnquiryValidation,
   listEnquiriesValidation,
-  enquiryIdParamValidation
+  enquiryIdParamValidation,
+  publicEnquiryValidation
 } = require('./enquiry.validation');
 const {
   createAdmissionValidation,
@@ -28,6 +29,7 @@ module.exports = {
   updateEnquiryValidation,
   listEnquiriesValidation,
   enquiryIdParamValidation,
+  publicEnquiryValidation,
   createAdmissionValidation,
   updateTotalFeesValidation,
   admissionIdParamValidation,
