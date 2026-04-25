@@ -34,7 +34,11 @@ const createPaymentValidation = [
     .isISO8601()
     .withMessage('Please provide a valid payment date')
     .toDate()
-    .custom((value) => {
+    .custom((value, { req }) => {
+      // Skip future date check for refunds
+      if (req.body.type === 'refund') {
+        return true;
+      }
       if (value && value > new Date()) {
         throw new Error('Payment date cannot be in the future');
       }
@@ -122,7 +126,11 @@ const updatePaymentValidation = [
     .isISO8601()
     .withMessage('Please provide a valid payment date')
     .toDate()
-    .custom((value) => {
+    .custom((value, { req }) => {
+      // Skip future date check for refunds
+      if (req.body.type === 'refund') {
+        return true;
+      }
       if (value && value > new Date()) {
         throw new Error('Payment date cannot be in the future');
       }

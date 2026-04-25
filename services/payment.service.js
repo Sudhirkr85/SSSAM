@@ -90,7 +90,8 @@ class PaymentService {
 
     const paymentType = type || PAYMENT_RECORD_TYPES.INSTALLMENT;
     const paymentStatus = status || PAYMENT_STATUSES.SUCCESS;
-    const actualPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
+    // For refunds, always use current date regardless of what is passed
+    const actualPaymentDate = paymentType === PAYMENT_RECORD_TYPES.REFUND ? new Date() : (paymentDate ? new Date(paymentDate) : new Date());
 
     // Check for duplicate payments before creating
     const duplicateCheck = await Payment.findOne({
