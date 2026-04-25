@@ -473,7 +473,7 @@ class AdmissionService {
           await Payment.create([{
             admissionId: admission._id,
             amount: initialPayment,
-            paymentMode: initialPaymentMode,
+            paymentMode: initialPaymentMode || paymentMethod,
             paymentDate: actualPaymentDate,
             type: PAYMENT_RECORD_TYPES.INITIAL,
             status: PAYMENT_STATUSES.SUCCESS,
@@ -629,7 +629,7 @@ class AdmissionService {
       await Payment.create([{
         admissionId: existingAdmission._id,
         amount: numericInitialPayment,
-        paymentMode: initialPaymentMode,
+        paymentMode: initialPaymentMode || paymentMethod,
         paymentDate: actualPaymentDate,
         type: PAYMENT_RECORD_TYPES.INITIAL,
         status: PAYMENT_STATUSES.SUCCESS,
