@@ -173,7 +173,8 @@ const createAdmissionFromEnquiryValidation = [
     .withMessage('Please provide a valid date')
     .toDate(),
   body('fullPaymentDueDate')
-    .optional()
+    .optional({ nullable: true })
+    .if((value) => value !== null && value !== undefined && value !== '')
     .isISO8601()
     .withMessage('Please provide a valid due date')
     .toDate(),
