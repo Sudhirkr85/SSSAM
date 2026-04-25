@@ -440,6 +440,13 @@ class EnquiryService {
     } else if (query.followUpOverdue === 'true' || query.followUpOverdue === true) {
       filter.followUpDate = { $lt: today };
       filter.status = { $ne: ENQUIRY_STATUSES.CONVERTED };
+    } else if (query.followUpDate) {
+      // Filter by specific follow-up date
+      const followUpDate = new Date(query.followUpDate);
+      followUpDate.setHours(0, 0, 0, 0);
+      const nextDay = new Date(followUpDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      filter.followUpDate = { $gte: followUpDate, $lt: nextDay };
     } else if (query.view === 'default') {
       filter.followUpDate = { $lte: today };
       filter.status = { $ne: ENQUIRY_STATUSES.CONVERTED };

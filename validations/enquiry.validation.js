@@ -151,7 +151,13 @@ const listEnquiriesValidation = [
   query('view')
     .optional()
     .isIn(['default', 'all'])
-    .withMessage('view must be default or all')
+    .withMessage('view must be default or all'),
+
+  query('followUpDate')
+    .optional()
+    .isISO8601()
+    .withMessage('followUpDate must be a valid date')
+    .toDate()
 ];
 
 const enquiryIdParamValidation = [
