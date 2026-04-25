@@ -19,7 +19,7 @@ class AdmissionController {
   });
 
   listAdmissions = catchAsync(async (req, res) => {
-    const result = await admissionService.listAdmissions(req.query);
+    const result = await admissionService.listAdmissions(req.query, req.user);
     return paginatedResponse(res, result.admissions, result.pagination, 'Admissions retrieved successfully');
   });
 

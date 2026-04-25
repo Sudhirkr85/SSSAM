@@ -833,13 +833,28 @@ class AdmissionService {
     };
   }
 
-  async listAdmissions(queryParams) {
+  async listAdmissions(queryParams, user = null) {
     const { page = 1, limit = 10, isLocked, status } = queryParams;
     const skip = (page - 1) * limit;
 
     const filter = { isDeleted: false };
     if (isLocked !== undefined) filter.isLocked = isLocked === 'true';
     if (status) filter.status = status;
+
+    // Role-based filtering for COUNSELOR
+    if (user && user.role === ROLES.COUNSELOR) {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Get counselor's own admissions from last 30 days OR all pending payment admissions
+      filter.$or = [
+        { counselorId: user.id, createdAt: { $gte: thirtyDaysAgo } },
+        { remainingAmount: { $gt: 0 } }
+      ];
+
+      // Note: remainingAmount filter will be applied after calculating payments
+      // We'll fetch based on counselor and date, then filter by remainingAmount
+    }
 
     const [admissions, totalCount] = await Promise.all([
       Admission.find(filter)
@@ -885,14 +900,46 @@ class AdmissionService {
       };
     });
 
+    // For COUNSELOR: Apply remainingAmount filter and exclude fully paid admissions older than 30 days
+    let filteredAdmissions = admissionsWithRemaining;
+    let filteredCount = totalCount;
+
+    if (user && user.role === ROLES.COUNSELOR) {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      filteredAdmissions = admissionsWithRemaining.filter(admission => {
+        const isOwnAdmission = admission.counselorId._id.toString() === user.id;
+        const isRecent = new Date(admission.createdAt) >= thirtyDaysAgo;
+        const hasPendingPayment = admission.remainingAmount > 0;
+        const isFullyPaid = admission.remainingAmount === 0;
+
+        // Include if: (own admission AND recent) OR (has pending payment)
+        // Exclude if: fully paid AND older than 30 days
+        if (isFullyPaid && !isRecent) {
+          return false;
+        }
+
+        return (isOwnAdmission && isRecent) || hasPendingPayment;
+      });
+
+      // Recalculate count for filtered results
+      filteredCount = await Admission.countDocuments({
+        ...filter,
+        $or: [
+          { counselorId: user.id, createdAt: { $gte: thirtyDaysAgo } }
+        ]
+      });
+    }
+
     return {
-      admissions: admissionsWithRemaining,
+      admissions: filteredAdmissions,
       pagination: {
         page,
         limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNextPage: page < Math.ceil(totalCount / limit),
+        totalCount: filteredCount,
+        totalPages: Math.ceil(filteredCount / limit),
+        hasNextPage: page < Math.ceil(filteredCount / limit),
         hasPrevPage: page > 1
       }
     };
