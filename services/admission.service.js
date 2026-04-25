@@ -834,7 +834,7 @@ class AdmissionService {
   }
 
   async listAdmissions(queryParams, user = null) {
-    const { page = 1, limit = 10, isLocked, status } = queryParams;
+    const { page = 1, limit = 10, isLocked, status, search } = queryParams;
     const skip = (page - 1) * limit;
 
     const filter = { isDeleted: false };
@@ -845,6 +845,35 @@ class AdmissionService {
     if (user && user.role === ROLES.COUNSELOR) {
       // Get counselor's own admissions (no time restriction)
       filter.counselorId = user.id;
+    }
+
+    // Search by enquiry name or mobile
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      const matchingEnquiries = await Enquiry.find({
+        $or: [
+          { name: { $regex: searchRegex } },
+          { mobile: { $regex: searchRegex } }
+        ]
+      }).select('_id').lean();
+      
+      const enquiryIds = matchingEnquiries.map(e => e._id.toString());
+      if (enquiryIds.length > 0) {
+        filter.enquiryId = { $in: enquiryIds };
+      } else {
+        // No matching enquiries - return empty result
+        return {
+          admissions: [],
+          pagination: {
+            page,
+            limit,
+            totalCount: 0,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPrevPage: false
+          }
+        };
+      }
     }
 
     const [admissions, totalCount] = await Promise.all([
