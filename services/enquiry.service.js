@@ -23,6 +23,29 @@ class EnquiryService {
     return await this.getEnquiryById(enquiry._id);
   }
 
+  async createPublicEnquiry(data) {
+    // Create a system user for public enquiries (optional, or use a default counselor)
+    // For now, we'll set createdBy to null or a default system user
+    const enquiry = await Enquiry.create({
+      name: data.name,
+      mobile: data.mobile,
+      email: data.email || null,
+      courseInterested: data.courseInterested,
+      source: 'website',
+      status: ENQUIRY_STATUSES.NEW,
+      assignedTo: null,
+      createdBy: null,
+      statusHistory: [{
+        status: ENQUIRY_STATUSES.NEW,
+        note: 'Enquiry created via website',
+        changedBy: null,
+        changedAt: new Date()
+      }]
+    });
+
+    return await this.getEnquiryById(enquiry._id);
+  }
+
   async getEnquiryById(id) {
     const enquiry = await Enquiry.findOne({ _id: id, isDeleted: false })
       .populate('assignedTo', 'name email')

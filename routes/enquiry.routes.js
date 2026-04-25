@@ -15,7 +15,8 @@ const {
   createEnquiryValidation,
   updateEnquiryValidation,
   listEnquiriesValidation,
-  enquiryIdParamValidation
+  enquiryIdParamValidation,
+  publicEnquiryValidation
 } = require('../validations');
 
 router.use(authMiddleware);

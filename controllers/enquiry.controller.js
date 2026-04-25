@@ -86,6 +86,18 @@ class EnquiryController {
       'Enquiry deleted successfully'
     );
   });
+
+  // POST /public/enquiries - Public endpoint for website submissions
+  createPublicEnquiry = catchAsync(async (req, res) => {
+    const result = await enquiryService.createPublicEnquiry(req.body);
+    
+    return successResponse(
+      res,
+      { enquiry: result },
+      'Enquiry submitted successfully',
+      201
+    );
+  });
 }
 
 module.exports = new EnquiryController();

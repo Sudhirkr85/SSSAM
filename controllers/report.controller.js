@@ -30,6 +30,12 @@ class ReportController {
     const report = await reportService.getCoursePerformance();
     return successResponse(res, report, 'Course performance report generated successfully');
   });
+
+  getCounselorStudents = catchAsync(async (req, res) => {
+    const { counselorId } = req.params;
+    const students = await reportService.getCounselorStudents(counselorId);
+    return successResponse(res, students, 'Counselor students retrieved successfully');
+  });
 }
 
 module.exports = new ReportController();

@@ -48,4 +48,10 @@ router.get(
   reportController.getCoursePerformance
 );
 
+router.get(
+  '/counselor/:counselorId/students',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  reportController.getCounselorStudents
+);
+
 module.exports = router;

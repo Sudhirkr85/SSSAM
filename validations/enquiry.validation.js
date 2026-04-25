@@ -160,9 +160,40 @@ const enquiryIdParamValidation = [
     .withMessage('Please provide a valid enquiry ID')
 ];
 
+const publicEnquiryValidation = [
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Name is required')
+    .isLength({ max: 100 })
+    .withMessage('Name cannot exceed 100 characters'),
+
+  body('mobile')
+    .trim()
+    .notEmpty()
+    .withMessage('Mobile number is required')
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
+
+  body('courseInterested')
+    .trim()
+    .notEmpty()
+    .withMessage('Course interested is required')
+    .isLength({ max: 100 })
+    .withMessage('Course interested cannot exceed 100 characters'),
+
+  body('email')
+    .optional()
+    .trim()
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail()
+];
+
 module.exports = {
   createEnquiryValidation,
   updateEnquiryValidation,
   listEnquiriesValidation,
-  enquiryIdParamValidation
+  enquiryIdParamValidation,
+  publicEnquiryValidation
 };

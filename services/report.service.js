@@ -60,6 +60,46 @@ class ReportService {
       ? ((allTimeAdmissions / allTimeEnquiries) * 100).toFixed(2)
       : 0;
 
+    // Get source-wise statistics
+    const sourceStats = await Enquiry.aggregate([
+      {
+        $group: {
+          _id: '$source',
+          totalEnquiries: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Get converted enquiries per source
+    const convertedBySource = await Enquiry.aggregate([
+      {
+        $match: { status: ENQUIRY_STATUSES.CONVERTED }
+      },
+      {
+        $group: {
+          _id: '$source',
+          converted: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Create lookup map for converted counts
+    const convertedMap = {};
+    convertedBySource.forEach(item => {
+      const sourceKey = item._id || 'Not Specified';
+      convertedMap[sourceKey] = item.converted;
+    });
+
+    // Merge source stats with converted counts
+    const formattedSourceStats = sourceStats.map(item => {
+      const sourceKey = item._id || 'Not Specified';
+      return {
+        source: sourceKey,
+        enquiries: item.totalEnquiries,
+        converted: convertedMap[sourceKey] || 0
+      };
+    });
+
     return {
       range,
       dateRange: hasDateFilter ? { startDate, endDate } : null,
@@ -75,6 +115,7 @@ class ReportService {
           ? ((periodAdmissions - previousPeriodAdmissions) / previousPeriodAdmissions * 100).toFixed(2)
           : null
       },
+      sourceStats: formattedSourceStats,
       admissions
     };
   }
@@ -400,6 +441,80 @@ class ReportService {
       upcoming,
       overdue
     };
+  }
+
+  async getCounselorStudents(counselorId) {
+    // Get all enquiries assigned to this counselor
+    const enquiries = await Enquiry.find({ assignedTo: counselorId, isDeleted: false })
+      .populate('assignedTo', 'name')
+      .lean();
+
+    // Get all admission IDs for these enquiries
+    const enquiryIds = enquiries.map(e => e._id);
+    const admissions = await Admission.find({ enquiryId: { $in: enquiryIds }, isDeleted: false })
+      .lean();
+
+    // Create a map of enquiryId to admission
+    const admissionMap = {};
+    admissions.forEach(adm => {
+      admissionMap[adm.enquiryId.toString()] = adm;
+    });
+
+    // Get all payments for these admissions
+    const admissionIds = admissions.map(a => a._id);
+    const payments = await Payment.find({
+      admissionId: { $in: admissionIds },
+      isDeleted: false,
+      status: 'success',
+      type: { $ne: 'refund' }
+    }).lean();
+
+    // Create a map of admissionId to total paid
+    const paymentMap = {};
+    payments.forEach(payment => {
+      const admId = payment.admissionId.toString();
+      paymentMap[admId] = (paymentMap[admId] || 0) + payment.amount;
+    });
+
+    // Build response
+    const students = enquiries.map(enquiry => {
+      const admission = admissionMap[enquiry._id.toString()];
+      const hasAdmission = !!admission;
+      
+      let feesPaid = 0;
+      let pendingFees = 0;
+      let admissionId = null;
+      let status = enquiry.status;
+      
+      if (admission) {
+        admissionId = admission._id;
+        feesPaid = paymentMap[admission._id.toString()] || 0;
+        pendingFees = admission.totalFees - feesPaid;
+        status = 'Admitted';
+      }
+
+      // Get last follow-up date from status history
+      const lastFollowup = enquiry.statusHistory && enquiry.statusHistory.length > 0
+        ? enquiry.statusHistory[enquiry.statusHistory.length - 1].changedAt
+        : enquiry.followUpDate;
+
+      return {
+        id: enquiry._id,
+        enquiryId: enquiry._id,
+        admissionId: admissionId,
+        name: enquiry.name,
+        email: enquiry.email,
+        phone: enquiry.mobile,
+        course: enquiry.courseInterested,
+        status: status,
+        hasAdmission: hasAdmission,
+        feesPaid: feesPaid,
+        pendingFees: pendingFees,
+        lastFollowup: lastFollowup
+      };
+    });
+
+    return students;
   }
 }
 
