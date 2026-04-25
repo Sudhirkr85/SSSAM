@@ -9,7 +9,7 @@ class PaymentController {
   });
 
   listPayments = catchAsync(async (req, res) => {
-    const result = await paymentService.listPayments(req.query);
+    const result = await paymentService.listPayments(req.query, req.user);
     return successResponse(res, result, 'Payments retrieved successfully');
   });
 

@@ -503,7 +503,7 @@ class PaymentService {
     return await this.getPaymentById(paymentId);
   }
 
-  async listPayments(queryParams) {
+  async listPayments(queryParams, user = null) {
     const { page = 1, limit = 10, admissionId, startDate, endDate } = queryParams;
     const skip = (page - 1) * limit;
 
@@ -515,17 +515,55 @@ class PaymentService {
       if (endDate) filter.paymentDate.$lte = new Date(endDate);
     }
 
+    // Role-based filtering for COUNSELOR
+    if (user && user.role === ROLES.COUNSELOR) {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Get admissions where counselorId == currentUserId
+      const counselorAdmissions = await Admission.find({
+        counselorId: user.id,
+        isDeleted: false
+      }).select('_id');
+
+      const admissionIds = counselorAdmissions.map(a => a._id);
+
+      // Filter payments by admissionIds and paymentDate >= 30 days ago
+      filter.admissionId = { $in: admissionIds };
+      filter.paymentDate = filter.paymentDate || {};
+      filter.paymentDate.$gte = thirtyDaysAgo;
+    }
+
     const [payments, totalCount] = await Promise.all([
       Payment.find(filter)
         .populate('createdBy', 'name email')
+        .populate({
+          path: 'admissionId',
+          populate: {
+            path: 'enquiryId',
+            select: 'name'
+          }
+        })
         .sort({ paymentDate: -1 })
         .skip(skip)
         .limit(limit),
       Payment.countDocuments(filter)
     ]);
 
+    // Format response with required fields
+    const formattedPayments = payments.map(payment => ({
+      id: payment._id,
+      amount: payment.amount,
+      paymentMode: payment.paymentMode,
+      paymentDate: payment.paymentDate,
+      counselorId: payment.admissionId?.counselorId,
+      admissionId: payment.admissionId?._id,
+      studentName: payment.admissionId?.enquiryId?.name,
+      course: payment.admissionId?.course
+    }));
+
     return {
-      payments,
+      payments: formattedPayments,
       pagination: {
         page,
         limit,
