@@ -93,21 +93,19 @@ class PaymentService {
     // For refunds, always use current date regardless of what is passed
     const actualPaymentDate = paymentType === PAYMENT_RECORD_TYPES.REFUND ? new Date() : (paymentDate ? new Date(paymentDate) : new Date());
 
-    // Check for duplicate payments before creating
+    // Check for duplicate payments before creating (within last 5 minutes to prevent accidental double-clicks)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     const duplicateCheck = await Payment.findOne({
       admissionId,
       amount: amount,
       paymentMode: paymentMode || 'CASH',
-      paymentDate: {
-        $gte: new Date(actualPaymentDate.setHours(0, 0, 0, 0)),
-        $lt: new Date(actualPaymentDate.setHours(23, 59, 59, 999))
-      },
       type: paymentType,
-      isDeleted: false
+      isDeleted: false,
+      createdAt: { $gte: fiveMinutesAgo }
     });
 
     if (duplicateCheck) {
-      throw new AppError('A similar payment already exists for this admission on this date', 400);
+      throw new AppError('A similar payment was just recorded. Please wait a few minutes before adding another payment of the same amount.', 400);
     }
 
     // Use transaction for refund operations to ensure atomicity
