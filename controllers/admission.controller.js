@@ -1,10 +1,16 @@
 const { admissionService } = require('../services');
 const { successResponse, paginatedResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
+const { getIO } = require('../utils/socketHelper');
 
 class AdmissionController {
   createAdmission = catchAsync(async (req, res) => {
     const admission = await admissionService.createAdmission(req.body, req.user);
+    
+    // Emit real-time notification to all connected users
+    const io = getIO();
+    io.emit('admission:created', { admission });
+    
     return successResponse(res, { admission }, 'Admission created successfully', 201);
   });
 
@@ -51,6 +57,13 @@ class AdmissionController {
       { paymentType, installments, totalFees, paymentMethod, registrationAmount, initialPayment, initialPaymentMode, paymentDate, fullPaymentDueDate },
       req.user
     );
+    
+    // Emit real-time notification if admission was created (not already exists)
+    if (!result.alreadyExists) {
+      const io = getIO();
+      io.emit('admission:created', { admission: result.admission });
+    }
+    
     const message = result.alreadyExists
       ? 'Admission already exists for this enquiry'
       : 'Admission created successfully with payment plan';

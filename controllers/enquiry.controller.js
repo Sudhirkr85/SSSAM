@@ -1,10 +1,15 @@
 const { enquiryService } = require('../services');
 const { successResponse, paginatedResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
+const { getIO } = require('../utils/socketHelper');
 
 class EnquiryController {
   createEnquiry = catchAsync(async (req, res) => {
     const result = await enquiryService.createEnquiry(req.body, req.user);
+    
+    // Emit real-time notification to all connected users
+    const io = getIO();
+    io.emit('enquiry:created', { enquiry: result });
     
     return successResponse(
       res,
@@ -90,6 +95,10 @@ class EnquiryController {
   // POST /public/enquiries - Public endpoint for website submissions
   createPublicEnquiry = catchAsync(async (req, res) => {
     const result = await enquiryService.createPublicEnquiry(req.body);
+    
+    // Emit real-time notification to all connected users
+    const io = getIO();
+    io.emit('enquiry:created', { enquiry: result });
     
     return successResponse(
       res,

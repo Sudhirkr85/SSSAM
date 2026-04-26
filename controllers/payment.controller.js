@@ -1,10 +1,16 @@
 const { paymentService } = require('../services');
 const { successResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
+const { getIO } = require('../utils/socketHelper');
 
 class PaymentController {
   createPayment = catchAsync(async (req, res) => {
     const payment = await paymentService.createPayment(req.body, req.user);
+    
+    // Emit real-time notification to all connected users (frontend filters for admin)
+    const io = getIO();
+    io.emit('payment:received', { payment });
+    
     return successResponse(res, { payment }, 'Payment recorded successfully', 201);
   });
 
