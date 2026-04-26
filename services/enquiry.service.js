@@ -129,8 +129,24 @@ class EnquiryService {
       filter.$or = [
         { name: { $regex: query.search, $options: 'i' } },
         { mobile: { $regex: query.search, $options: 'i' } },
-        { email: { $regex: query.search, $options: 'i' } }
+        { email: { $regex: query.search, $options: 'i' } },
+        { courseInterested: { $regex: query.search, $options: 'i' } }
       ];
+    }
+
+    // Date range filters (createdAt)
+    if (query.dateFrom || query.dateTo) {
+      filter.createdAt = {};
+      if (query.dateFrom) {
+        const dateFrom = new Date(query.dateFrom);
+        dateFrom.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = dateFrom;
+      }
+      if (query.dateTo) {
+        const dateTo = new Date(query.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = dateTo;
+      }
     }
 
     const [enquiries, totalCount] = await Promise.all([
@@ -419,7 +435,8 @@ class EnquiryService {
         $or: [
           { name: { $regex: query.search, $options: 'i' } },
           { mobile: { $regex: query.search, $options: 'i' } },
-          { email: { $regex: query.search, $options: 'i' } }
+          { email: { $regex: query.search, $options: 'i' } },
+          { courseInterested: { $regex: query.search, $options: 'i' } }
         ]
       };
       filter.$and = filter.$and || [];
@@ -450,6 +467,21 @@ class EnquiryService {
     } else if (query.view === 'default') {
       filter.followUpDate = { $lte: today };
       filter.status = { $ne: ENQUIRY_STATUSES.CONVERTED };
+    }
+
+    // Date range filters (createdAt)
+    if (query.dateFrom || query.dateTo) {
+      filter.createdAt = {};
+      if (query.dateFrom) {
+        const dateFrom = new Date(query.dateFrom);
+        dateFrom.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = dateFrom;
+      }
+      if (query.dateTo) {
+        const dateTo = new Date(query.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = dateTo;
+      }
     }
 
     return filter;

@@ -157,6 +157,18 @@ const listEnquiriesValidation = [
     .optional()
     .isISO8601()
     .withMessage('followUpDate must be a valid date')
+    .toDate(),
+
+  query('dateFrom')
+    .optional()
+    .isISO8601()
+    .withMessage('dateFrom must be a valid date in ISO format (YYYY-MM-DD)')
+    .toDate(),
+
+  query('dateTo')
+    .optional()
+    .isISO8601()
+    .withMessage('dateTo must be a valid date in ISO format (YYYY-MM-DD)')
     .toDate()
 ];
 
