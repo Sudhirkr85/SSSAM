@@ -31,7 +31,25 @@ const userSchema = new mongoose.Schema({
     enum: Object.values(ROLES),
     default: ROLES.COUNSELOR,
     required: true
-  }
+  },
+  fcmTokens: [{
+    token: {
+      type: String,
+      required: true
+    },
+    deviceInfo: {
+      type: String,
+      default: 'web'
+    },
+    lastUsed: {
+      type: Date,
+      default: Date.now
+    },
+    isValid: {
+      type: Boolean,
+      default: true
+    }
+  }]
 }, {
   timestamps: true
 });

@@ -1,4 +1,4 @@
-const { registerValidation, loginValidation } = require('./auth.validation');
+const { registerValidation, loginValidation, logoutValidation } = require('./auth.validation');
 const {
   createEnquiryValidation,
   updateEnquiryValidation,
@@ -25,6 +25,7 @@ const { reportRangeValidation } = require('./report.validation');
 module.exports = {
   registerValidation,
   loginValidation,
+  logoutValidation,
   createEnquiryValidation,
   updateEnquiryValidation,
   listEnquiriesValidation,

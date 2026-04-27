@@ -40,10 +40,29 @@ const loginValidation = [
   
   body('password')
     .notEmpty()
-    .withMessage('Password is required')
+    .withMessage('Password is required'),
+
+  body('fcmToken')
+    .optional()
+    .isString()
+    .withMessage('FCM token must be a string'),
+
+  body('deviceInfo')
+    .optional()
+    .isString()
+    .withMessage('Device info must be a string')
+];
+
+const logoutValidation = [
+  body('fcmToken')
+    .notEmpty()
+    .withMessage('FCM token is required')
+    .isString()
+    .withMessage('FCM token must be a string')
 ];
 
 module.exports = {
   registerValidation,
-  loginValidation
+  loginValidation,
+  logoutValidation
 };

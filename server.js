@@ -4,7 +4,8 @@ const connectDB = require('./config/database');
 const app = require('./app');
 const logger = require('./utils/logger');
 const http = require('http');
-const { initializeSocket } = require('./config/socket');
+const { initializeFirebase } = require('./config/firebase');
+const schedulerService = require('./services/schedulerService');
 
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -12,17 +13,21 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 // Create HTTP server
 const server = http.createServer(app);
 
-// Initialize Socket.IO
-initializeSocket(server);
+// Initialize Firebase Admin SDK
+initializeFirebase();
 
 const startServer = async () => {
   try {
     await connectDB();
     
+    // Start scheduler for notifications
+    schedulerService.start();
+    
     server.listen(PORT, () => {
       logger.info(`Server running in ${NODE_ENV} mode on port ${PORT}`, { port: PORT, env: NODE_ENV });
       logger.info(`API available at http://localhost:${PORT}/api`, { url: `http://localhost:${PORT}/api` });
-      logger.info(`Socket.IO server initialized`, { socketPort: PORT });
+      logger.info(`Firebase notifications initialized`);
+      logger.info(`Scheduler service started - Daily notifications at 10:30 AM, 4:00 PM, 4:30 PM`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

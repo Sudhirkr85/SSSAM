@@ -1,6 +1,7 @@
 const { User } = require('../models');
 const { generateToken } = require('../utils/jwtHelper');
 const AppError = require('../utils/AppError');
+const firebaseService = require('./firebaseService');
 
 class AuthService {
   async register(userData) {
@@ -20,7 +21,7 @@ class AuthService {
     };
   }
 
-  async login(email, password) {
+  async login(email, password, fcmToken, deviceInfo = 'web') {
     const user = await User.findOne({ email }).select('+password');
     
     if (!user) {
@@ -39,6 +40,11 @@ class AuthService {
       role: user.role
     });
 
+    // Save FCM token if provided
+    if (fcmToken) {
+      await firebaseService.saveFCMToken(user._id, fcmToken, deviceInfo);
+    }
+
     return {
       user: {
         id: user._id,
@@ -48,6 +54,19 @@ class AuthService {
       },
       token
     };
+  }
+
+  async logout(userId, fcmToken) {
+    if (!userId) {
+      throw new AppError('User ID is required', 400);
+    }
+
+    // Remove FCM token if provided
+    if (fcmToken) {
+      await firebaseService.removeFCMToken(userId, fcmToken);
+    }
+
+    return { success: true, message: 'Logout successful' };
   }
 }
 

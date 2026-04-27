@@ -1,15 +1,18 @@
 const { enquiryService } = require('../services');
 const { successResponse, paginatedResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
-const { getIO } = require('../utils/socketHelper');
+const firebaseService = require('../services/firebaseService');
 
 class EnquiryController {
   createEnquiry = catchAsync(async (req, res) => {
     const result = await enquiryService.createEnquiry(req.body, req.user);
     
-    // Emit real-time notification to all connected users
-    const io = getIO();
-    io.emit('enquiry:created', { enquiry: result });
+    // Send notification to all counselors and admin
+    await firebaseService.sendToAdminAndCounselors(
+      'New Enquiry',
+      `${result.name} - ${result.mobile} - ${result.courseInterested}`,
+      { type: 'enquiry_created', enquiryId: result._id.toString() }
+    );
     
     return successResponse(
       res,
@@ -71,6 +74,34 @@ class EnquiryController {
       message = 'Enquiry converted successfully. Please set up payment details.';
     }
     
+    // Send notification when enquiry is converted to CONVERTED status
+    if (status === 'CONVERTED' && result.enquiry) {
+      const notificationData = {
+        type: 'enquiry_converted',
+        enquiryId: result.enquiry._id.toString(),
+        name: result.enquiry.name,
+        mobile: result.enquiry.mobile,
+        course: result.enquiry.courseInterested,
+      };
+      
+      // Notify assigned counselor
+      if (result.enquiry.assignedTo) {
+        await firebaseService.sendNotification(
+          result.enquiry.assignedTo,
+          'Enquiry Converted',
+          `${result.enquiry.name} converted. Set up admission details.`,
+          notificationData
+        );
+      }
+      
+      // Notify admin
+      await firebaseService.sendToAdmin(
+        'Enquiry Converted',
+        `${result.enquiry.name} (${result.enquiry.mobile}) converted. Admission setup pending.`,
+        notificationData
+      );
+    }
+    
     return successResponse(
       res,
       { 
@@ -96,9 +127,12 @@ class EnquiryController {
   createPublicEnquiry = catchAsync(async (req, res) => {
     const result = await enquiryService.createPublicEnquiry(req.body);
     
-    // Emit real-time notification to all connected users
-    const io = getIO();
-    io.emit('enquiry:created', { enquiry: result });
+    // Send notification to all counselors and admin
+    await firebaseService.sendToAdminAndCounselors(
+      'New Enquiry (Website)',
+      `${result.name} - ${result.mobile} - ${result.courseInterested}`,
+      { type: 'enquiry_created', enquiryId: result._id.toString(), source: 'website' }
+    );
     
     return successResponse(
       res,

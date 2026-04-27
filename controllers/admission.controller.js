@@ -1,15 +1,36 @@
 const { admissionService } = require('../services');
 const { successResponse, paginatedResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
-const { getIO } = require('../utils/socketHelper');
+const firebaseService = require('../services/firebaseService');
 
 class AdmissionController {
   createAdmission = catchAsync(async (req, res) => {
     const admission = await admissionService.createAdmission(req.body, req.user);
     
-    // Emit real-time notification to all connected users
-    const io = getIO();
-    io.emit('admission:created', { admission });
+    // Send notification to admin and assigned counselor only
+    const notificationData = {
+      type: 'admission_created',
+      admissionId: admission._id.toString(),
+      course: admission.course,
+      totalFees: admission.totalFees,
+    };
+    
+    // Notify assigned counselor
+    if (admission.counselorId) {
+      await firebaseService.sendNotification(
+        admission.counselorId,
+        'Admission Created',
+        `${admission.course} - Admission done successfully`,
+        notificationData
+      );
+    }
+    
+    // Notify admin
+    await firebaseService.sendToAdmin(
+      'Admission Created',
+      `${admission.course} - New admission completed`,
+      notificationData
+    );
     
     return successResponse(res, { admission }, 'Admission created successfully', 201);
   });
@@ -58,10 +79,31 @@ class AdmissionController {
       req.user
     );
     
-    // Emit real-time notification if admission was created (not already exists)
-    if (!result.alreadyExists) {
-      const io = getIO();
-      io.emit('admission:created', { admission: result.admission });
+    // Send notification if admission was created (not already exists)
+    if (!result.alreadyExists && result.admission) {
+      const notificationData = {
+        type: 'admission_created',
+        admissionId: result.admission._id.toString(),
+        course: result.admission.course,
+        totalFees: result.admission.totalFees,
+      };
+      
+      // Notify assigned counselor
+      if (result.admission.counselorId) {
+        await firebaseService.sendNotification(
+          result.admission.counselorId,
+          'Admission Created',
+          `${result.admission.course} - Admission done successfully`,
+          notificationData
+        );
+      }
+      
+      // Notify admin
+      await firebaseService.sendToAdmin(
+        'Admission Created',
+        `${result.admission.course} - New admission completed`,
+        notificationData
+      );
     }
     
     const message = result.alreadyExists

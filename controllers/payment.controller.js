@@ -1,15 +1,40 @@
 const { paymentService } = require('../services');
 const { successResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
-const { getIO } = require('../utils/socketHelper');
+const firebaseService = require('../services/firebaseService');
+const Admission = require('../models/Admission');
 
 class PaymentController {
   createPayment = catchAsync(async (req, res) => {
     const payment = await paymentService.createPayment(req.body, req.user);
     
-    // Emit real-time notification to all connected users (frontend filters for admin)
-    const io = getIO();
-    io.emit('payment:received', { payment });
+    // Get admission details to find assigned counselor
+    const admission = await Admission.findById(payment.admissionId).populate('counselorId');
+    
+    const notificationData = {
+      type: 'payment_received',
+      paymentId: payment._id.toString(),
+      admissionId: payment.admissionId.toString(),
+      amount: payment.amount,
+      paymentMode: payment.paymentMode,
+    };
+    
+    // Notify assigned counselor
+    if (admission && admission.counselorId) {
+      await firebaseService.sendNotification(
+        admission.counselorId._id,
+        'Payment Received',
+        `₹${payment.amount} received via ${payment.paymentMode}`,
+        notificationData
+      );
+    }
+    
+    // Notify admin
+    await firebaseService.sendToAdmin(
+      'Payment Received',
+      `₹${payment.amount} received via ${payment.paymentMode}`,
+      notificationData
+    );
     
     return successResponse(res, { payment }, 'Payment recorded successfully', 201);
   });

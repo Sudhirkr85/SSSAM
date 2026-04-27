@@ -4,7 +4,7 @@ const router = express.Router();
 const { authController } = require('../controllers');
 const { authMiddleware, roleMiddleware, validateRequest } = require('../middleware');
 const { ROLES } = require('../config/constants');
-const { registerValidation, loginValidation } = require('../validations');
+const { registerValidation, loginValidation, logoutValidation } = require('../validations');
 
 // POST /auth/register - Public (no token required)
 router.post(
@@ -30,6 +30,15 @@ router.post(
   loginValidation,
   validateRequest,
   authController.login
+);
+
+// POST /auth/logout - Protected (requires auth)
+router.post(
+  '/logout',
+  authMiddleware,
+  logoutValidation,
+  validateRequest,
+  authController.logout
 );
 
 module.exports = router;
