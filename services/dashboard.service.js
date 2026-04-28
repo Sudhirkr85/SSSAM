@@ -172,6 +172,33 @@ class DashboardService {
       assignedTo: user.id,
       status: ENQUIRY_STATUSES.CONVERTED
     });
+
+    // Get course breakdown for this counselor
+    const courseBreakdown = await Enquiry.aggregate([
+      { 
+        $match: { 
+          assignedTo: user.id,
+          isDeleted: false 
+        }
+      },
+      {
+        $group: {
+          _id: '$courseInterested',
+          enquiries: { $sum: 1 },
+          converted: {
+            $sum: { $cond: [{ $eq: ['$status', ENQUIRY_STATUSES.CONVERTED] }, 1, 0] }
+          }
+        }
+      },
+      { $sort: { enquiries: -1 } }
+    ]);
+
+    const formattedCourseBreakdown = courseBreakdown.map(c => ({
+      course: c._id,
+      enquiries: c.enquiries,
+      converted: c.converted,
+      conversionRate: c.enquiries > 0 ? ((c.converted / c.enquiries) * 100).toFixed(1) : 0
+    }));
     
     return {
       enquiries: {
@@ -185,7 +212,8 @@ class DashboardService {
         today: todayFollowUps,
         overdue: overdueFollowUps
       },
-      conversions
+      conversions,
+      courseBreakdown: formattedCourseBreakdown
     };
   }
 
@@ -439,6 +467,66 @@ class DashboardService {
       }
     });
 
+    // Get Conversion Funnel Data
+    const [enquiryCount, followUpCount, hotLeadCount] = await Promise.all([
+      Enquiry.countDocuments({ ...enquiryFilter, status: { $in: ['NEW', 'CONTACTED', 'FOLLOW_UP', 'HOT', 'CONVERTED'] } }),
+      Enquiry.countDocuments({ ...enquiryFilter, status: { $in: ['FOLLOW_UP', 'HOT', 'CONVERTED'] } }),
+      Enquiry.countDocuments({ ...enquiryFilter, status: { $in: ['HOT', 'CONVERTED'] } })
+    ]);
+
+    const funnel = {
+      enquiries: enquiryCount,
+      followUps: followUpCount,
+      hotLeads: hotLeadCount,
+      admissions: totalAdmissions
+    };
+
+    // Get Hot Leads ( enquiries with HOT status, not converted)
+    const hotLeadsData = await Enquiry.find({
+      ...enquiryFilter,
+      status: 'HOT',
+      isDeleted: false
+    })
+    .sort({ updatedAt: -1 })
+    .limit(10)
+    .select('name mobile courseInterested status followUpDate assignedTo')
+    .populate('assignedTo', 'name')
+    .lean();
+
+    const formattedHotLeads = hotLeadsData.map(e => ({
+      id: e._id,
+      name: e.name,
+      mobile: e.mobile,
+      course: e.courseInterested,
+      status: e.status,
+      followUpDate: this._formatDateShort(e.followUpDate),
+      assignedTo: e.assignedTo?.name || 'Unassigned'
+    }));
+
+    // Get Course Breakdown for Admin
+    const courseBreakdown = await Enquiry.aggregate([
+      { $match: enquiryFilter },
+      {
+        $group: {
+          _id: '$courseInterested',
+          enquiries: { $sum: 1 },
+          converted: {
+            $sum: { $cond: [{ $eq: ['$status', ENQUIRY_STATUSES.CONVERTED] }, 1, 0] }
+          }
+        }
+      },
+      { $sort: { enquiries: -1 } }
+    ]);
+
+    const formattedCourseBreakdown = courseBreakdown.map(c => ({
+      course: c._id,
+      enquiries: c.enquiries,
+      admissions: 0, // Will be populated from admission stats
+      revenue: 0,    // Will be populated from payment stats
+      converted: c.converted,
+      conversionRate: c.enquiries > 0 ? ((c.converted / c.enquiries) * 100).toFixed(1) : 0
+    }));
+
     return {
       totalEnquiries,
       admissions: {
@@ -454,7 +542,10 @@ class DashboardService {
       pendingFollowups,
       recentEnquiries: formattedRecentEnquiries,
       upcomingFollowups: formattedUpcomingFollowups,
-      sourceBreakdown: formattedSourceBreakdown
+      sourceBreakdown: formattedSourceBreakdown,
+      funnel,
+      hotLeads: formattedHotLeads,
+      courseBreakdown: formattedCourseBreakdown
     };
   }
 
