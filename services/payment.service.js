@@ -503,15 +503,25 @@ class PaymentService {
   }
 
   async listPayments(queryParams, user = null) {
-    const { page = 1, limit = 10, admissionId, startDate, endDate } = queryParams;
+    const { page = 1, limit = 10, admissionId, startDate, endDate, search } = queryParams;
     const skip = (page - 1) * limit;
 
     const filter = { isDeleted: false };
     if (admissionId) filter.admissionId = admissionId;
+    
+    // Date filter with full day range
     if (startDate || endDate) {
       filter.paymentDate = {};
-      if (startDate) filter.paymentDate.$gte = new Date(startDate);
-      if (endDate) filter.paymentDate.$lte = new Date(endDate);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filter.paymentDate.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.paymentDate.$lte = end;
+      }
     }
 
     // Role-based filtering for COUNSELOR
@@ -533,6 +543,114 @@ class PaymentService {
       filter.paymentDate.$gte = thirtyDaysAgo;
     }
 
+    // If search is provided, use aggregation to filter by nested fields
+    if (search) {
+      const pipeline = [
+        { $match: filter },
+        {
+          $lookup: {
+            from: 'admissions',
+            localField: 'admissionId',
+            foreignField: '_id',
+            as: 'admissionId'
+          }
+        },
+        { $unwind: '$admissionId' },
+        {
+          $lookup: {
+            from: 'enquiries',
+            localField: 'admissionId.enquiryId',
+            foreignField: '_id',
+            as: 'admissionId.enquiryId'
+          }
+        },
+        { $unwind: '$admissionId.enquiryId' },
+        {
+          $match: {
+            $or: [
+              { 'admissionId.enquiryId.name': { $regex: search, $options: 'i' } },
+              { 'admissionId.enquiryId.mobile': { $regex: search, $options: 'i' } }
+            ]
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'createdBy',
+            foreignField: '_id',
+            as: 'createdBy'
+          }
+        },
+        { $unwind: { path: '$createdBy', preserveNullAndEmptyArrays: true } },
+        { $sort: { paymentDate: -1 } },
+        { $skip: skip },
+        { $limit: limit }
+      ];
+
+      const countPipeline = [
+        { $match: filter },
+        {
+          $lookup: {
+            from: 'admissions',
+            localField: 'admissionId',
+            foreignField: '_id',
+            as: 'admissionId'
+          }
+        },
+        { $unwind: '$admissionId' },
+        {
+          $lookup: {
+            from: 'enquiries',
+            localField: 'admissionId.enquiryId',
+            foreignField: '_id',
+            as: 'admissionId.enquiryId'
+          }
+        },
+        { $unwind: '$admissionId.enquiryId' },
+        {
+          $match: {
+            $or: [
+              { 'admissionId.enquiryId.name': { $regex: search, $options: 'i' } },
+              { 'admissionId.enquiryId.mobile': { $regex: search, $options: 'i' } }
+            ]
+          }
+        },
+        { $count: 'totalCount' }
+      ];
+
+      const [payments, countResult] = await Promise.all([
+        Payment.aggregate(pipeline),
+        Payment.aggregate(countPipeline)
+      ]);
+
+      const totalCount = countResult.length > 0 ? countResult[0].totalCount : 0;
+
+      // Format response with required fields
+      const formattedPayments = payments.map(payment => ({
+        id: payment._id,
+        amount: payment.amount,
+        paymentMode: payment.paymentMode,
+        paymentDate: payment.paymentDate,
+        counselorId: payment.admissionId?.counselorId,
+        admissionId: payment.admissionId?._id,
+        studentName: payment.admissionId?.enquiryId?.name,
+        course: payment.admissionId?.course
+      }));
+
+      return {
+        payments: formattedPayments,
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasNextPage: page < Math.ceil(totalCount / limit),
+          hasPrevPage: page > 1
+        }
+      };
+    }
+
+    // Regular query without search
     const [payments, totalCount] = await Promise.all([
       Payment.find(filter)
         .populate('createdBy', 'name email')
@@ -540,7 +658,7 @@ class PaymentService {
           path: 'admissionId',
           populate: {
             path: 'enquiryId',
-            select: 'name'
+            select: 'name mobile'
           }
         })
         .sort({ paymentDate: -1 })
