@@ -2,7 +2,22 @@ const { Admission, Payment, Enquiry, User } = require('../models');
 const { ENQUIRY_STATUSES } = require('../config/constants');
 
 class ReportService {
-  getDateRange(range) {
+  getDateRange(range, customStartDate, customEndDate) {
+    // If custom dates provided, use them with full day range
+    if (customStartDate || customEndDate) {
+      const startDate = customStartDate ? new Date(customStartDate) : null;
+      const endDate = customEndDate ? new Date(customEndDate) : null;
+      
+      if (startDate) {
+        startDate.setHours(0, 0, 0, 0);
+      }
+      if (endDate) {
+        endDate.setHours(23, 59, 59, 999);
+      }
+      
+      return { startDate, endDate };
+    }
+
     const now = new Date();
 
     // 'all' returns null dates (no filtering)
@@ -32,8 +47,8 @@ class ReportService {
     return { startDate, endDate: now };
   }
 
-  async getAdmissionsReport(range = 'all') {
-    const { startDate, endDate } = this.getDateRange(range);
+  async getAdmissionsReport(range = 'all', customStartDate, customEndDate) {
+    const { startDate, endDate } = this.getDateRange(range, customStartDate, customEndDate);
     const hasDateFilter = startDate && endDate;
 
     // Build date filters dynamically
@@ -120,8 +135,8 @@ class ReportService {
     };
   }
 
-  async getFeesReport(range = 'all') {
-    const { startDate, endDate } = this.getDateRange(range);
+  async getFeesReport(range = 'all', customStartDate, customEndDate) {
+    const { startDate, endDate } = this.getDateRange(range, customStartDate, customEndDate);
     const hasDateFilter = startDate && endDate;
 
     // Build date filters dynamically
@@ -166,8 +181,8 @@ class ReportService {
     };
   }
 
-  async getCounselorPerformance(range = 'all') {
-    const { startDate, endDate } = this.getDateRange(range);
+  async getCounselorPerformance(range = 'all', customStartDate, customEndDate) {
+    const { startDate, endDate } = this.getDateRange(range, customStartDate, customEndDate);
     const hasDateFilter = startDate && endDate;
 
     const counselors = await User.find({ role: 'counselor' });
@@ -277,9 +292,24 @@ class ReportService {
     };
   }
 
-  async getCoursePerformance() {
+  async getCoursePerformance(customStartDate, customEndDate) {
+    const { startDate, endDate } = this.getDateRange('all', customStartDate, customEndDate);
+    const hasDateFilter = startDate && endDate;
+    
+    // Build date filters for aggregations
+    const enquiryDateFilter = hasDateFilter 
+      ? { createdAt: { $gte: startDate, $lte: endDate } } 
+      : {};
+    const admissionDateFilter = hasDateFilter 
+      ? { admissionDate: { $gte: startDate, $lte: endDate } } 
+      : {};
+    const paymentDateFilter = hasDateFilter
+      ? { paymentDate: { $gte: startDate, $lte: endDate } }
+      : {};
+    
     // Get enquiry stats by course
     const enquiryStats = await Enquiry.aggregate([
+      { $match: enquiryDateFilter },
       {
         $group: {
           _id: '$courseInterested',
@@ -294,6 +324,7 @@ class ReportService {
 
     // Get admissions by course
     const admissionStats = await Admission.aggregate([
+      { $match: admissionDateFilter },
       {
         $lookup: {
           from: 'enquiries',
@@ -314,6 +345,7 @@ class ReportService {
 
     // Get payments by course (via admission)
     const paymentStats = await Payment.aggregate([
+      { $match: { ...paymentDateFilter, status: 'success', type: { $ne: 'refund' } } },
       {
         $lookup: {
           from: 'admissions',
@@ -332,9 +364,6 @@ class ReportService {
         }
       },
       { $unwind: '$enquiry' },
-      {
-        $match: { status: 'success', type: { $ne: 'refund' } }
-      },
       {
         $group: {
           _id: '$enquiry.courseInterested',
@@ -381,7 +410,10 @@ class ReportService {
       };
     });
 
-    return { courseStats };
+    return { 
+      dateRange: hasDateFilter ? { startDate, endDate } : null,
+      courseStats 
+    };
   }
 
   async getInstallmentAlerts() {

@@ -4,14 +4,14 @@ const catchAsync = require('../utils/catchAsync');
 
 class ReportController {
   getAdmissionsReport = catchAsync(async (req, res) => {
-    const { range = 'daily' } = req.query;
-    const report = await reportService.getAdmissionsReport(range);
+    const { range = 'daily', startDate, endDate } = req.query;
+    const report = await reportService.getAdmissionsReport(range, startDate, endDate);
     return successResponse(res, report, 'Admissions report generated successfully');
   });
 
   getFeesReport = catchAsync(async (req, res) => {
-    const { range = 'daily' } = req.query;
-    const report = await reportService.getFeesReport(range);
+    const { range = 'daily', startDate, endDate } = req.query;
+    const report = await reportService.getFeesReport(range, startDate, endDate);
     return successResponse(res, report, 'Fees report generated successfully');
   });
 
@@ -21,13 +21,14 @@ class ReportController {
   });
 
   getCounselorPerformance = catchAsync(async (req, res) => {
-    const { range = 'monthly' } = req.query;
-    const report = await reportService.getCounselorPerformance(range);
+    const { range = 'monthly', startDate, endDate } = req.query;
+    const report = await reportService.getCounselorPerformance(range, startDate, endDate);
     return successResponse(res, report, 'Counselor performance report generated successfully');
   });
 
   getCoursePerformance = catchAsync(async (req, res) => {
-    const report = await reportService.getCoursePerformance();
+    const { startDate, endDate } = req.query;
+    const report = await reportService.getCoursePerformance(startDate, endDate);
     return successResponse(res, report, 'Course performance report generated successfully');
   });
 
