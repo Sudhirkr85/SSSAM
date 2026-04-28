@@ -9,6 +9,14 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve static files from public folder
+app.use(express.static('public'));
+
+// Serve reports page at /reports route
+app.get('/reports', (req, res) => {
+  res.sendFile('reports.html', { root: './public' });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/enquiries', enquiryRoutes);
 app.use('/api/admissions', admissionRoutes);

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="css/reports.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Reports Dashboard</h1>
+        
+        <!-- Date Range Filter -->
+        <div class="filter-section">
+            <label>Start Date: <input type="date" id="startDate"></label>
+            <label>End Date: <input type="date" id="endDate"></label>
+            <button onclick="loadReports()">Load Reports</button>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="summary-cards">
+            <div class="card">
+                <h3>Total Admissions</h3>
+                <p id="totalAdmissions">-</p>
+            </div>
+            <div class="card">
+                <h3>Total Revenue</h3>
+                <p id="totalRevenue">-</p>
+            </div>
+            <div class="card">
+                <h3>Conversion Rate</h3>
+                <p id="conversionRate">-</p>
+            </div>
+            <div class="card">
+                <h3>Pending Fees</h3>
+                <p id="pendingFees">-</p>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="charts-grid">
+            <!-- Admission Sources Pie Chart -->
+            <div class="chart-container">
+                <h2>Admission Sources</h2>
+                <canvas id="sourcesChart"></canvas>
+            </div>
+
+            <!-- Course Performance Pie Chart -->
+            <div class="chart-container">
+                <h2>Course Distribution</h2>
+                <canvas id="courseChart"></canvas>
+            </div>
+
+            <!-- Payment Modes Pie Chart -->
+            <div class="chart-container">
+                <h2>Payment Modes</h2>
+                <canvas id="paymentModeChart"></canvas>
+            </div>
+
+            <!-- Counselor Performance Bar Chart -->
+            <div class="chart-container">
+                <h2>Counselor Performance</h2>
+                <canvas id="counselorChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Data Tables -->
+        <div class="tables-section">
+            <h2>Recent Payments</h2>
+            <table id="paymentsTable">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        <th>Amount</th>
+                        <th>Mode</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="js/reports.js"></script>
+</body>
+</html>
