@@ -128,50 +128,83 @@ class DashboardService {
 
   // Get counselor dashboard (for counselor role)
   async getCounselorDashboard(user) {
-    const ranges = this.getDateRanges();
-    
-    // Get enquiries assigned to this counselor
-    const [todayEnquiries, weeklyEnquiries, monthlyEnquiries, totalAssigned] = await Promise.all([
-      Enquiry.countDocuments({
-        assignedTo: user.id,
-        createdAt: { $gte: ranges.today.start, $lte: ranges.today.end }
-      }),
-      Enquiry.countDocuments({
-        assignedTo: user.id,
-        createdAt: { $gte: ranges.week.start, $lte: ranges.week.end }
-      }),
-      Enquiry.countDocuments({
-        assignedTo: user.id,
-        createdAt: { $gte: ranges.month.start, $lte: ranges.month.end }
-      }),
-      Enquiry.countDocuments({ assignedTo: user.id })
-    ]);
-    
-    // Get follow-ups
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Build base filter for counselor's assigned enquiries
+    const enquiryFilter = {
+      assignedTo: user.id,
+      isDeleted: false
+    };
     
-    const [overdueFollowUps, todayFollowUps, unassignedCount] = await Promise.all([
+    // Get main stats
+    const [
+      totalEnquiries,
+      totalConversions,
+      pendingFollowups
+    ] = await Promise.all([
+      Enquiry.countDocuments(enquiryFilter),
       Enquiry.countDocuments({
-        assignedTo: user.id,
+        ...enquiryFilter,
+        status: ENQUIRY_STATUSES.CONVERTED
+      }),
+      Enquiry.countDocuments({
+        ...enquiryFilter,
         followUpDate: { $lt: today },
         status: { $ne: ENQUIRY_STATUSES.CONVERTED }
-      }),
+      })
+    ]);
+
+    // Calculate today's calls: NEW enquiries + FOLLOW_UP with followUpDate <= today
+    const [newEnquiriesCount, followUpTodayCount] = await Promise.all([
+      // Count NEW enquiries
       Enquiry.countDocuments({
-        assignedTo: user.id,
-        followUpDate: { $gte: today, $lt: tomorrow },
-        status: { $ne: ENQUIRY_STATUSES.CONVERTED }
+        ...enquiryFilter,
+        status: ENQUIRY_STATUSES.NEW
       }),
-      Enquiry.countDocuments({ assignedTo: null })
+      // Count FOLLOW_UP enquiries with followUpDate <= today (including overdue)
+      Enquiry.countDocuments({
+        ...enquiryFilter,
+        status: ENQUIRY_STATUSES.FOLLOW_UP,
+        followUpDate: { $lte: today }
+      })
     ]);
     
-    // Get conversions by this counselor
-    const conversions = await Enquiry.countDocuments({
-      assignedTo: user.id,
-      status: ENQUIRY_STATUSES.CONVERTED
-    });
+    const todayCalls = newEnquiriesCount + followUpTodayCount;
+
+    // Get recent enquiries (last 5)
+    const recentEnquiries = await Enquiry.find(enquiryFilter)
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('name courseInterested status followUpDate createdAt')
+      .lean();
+
+    const formattedRecentEnquiries = recentEnquiries.map(e => ({
+      name: e.name,
+      course: e.courseInterested,
+      status: e.status,
+      followUpDate: e.followUpDate ? e.followUpDate.toISOString().split('T')[0] : null,
+      createdAt: e.createdAt.toISOString().split('T')[0]
+    }));
+
+    // Get upcoming followups (next 5)
+    const upcomingFollowupsData = await Enquiry.find({
+      ...enquiryFilter,
+      followUpDate: { $gte: today },
+      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
+    })
+      .sort({ followUpDate: 1 })
+      .limit(5)
+      .select('name mobile followUpDate')
+      .lean();
+
+    const formattedUpcomingFollowups = upcomingFollowupsData.map(e => ({
+      name: e.name,
+      phone: e.mobile,
+      date: this._formatDateShort(e.followUpDate)
+    }));
 
     // Get course breakdown for this counselor
     const courseBreakdown = await Enquiry.aggregate([
@@ -193,26 +226,22 @@ class DashboardService {
       { $sort: { enquiries: -1 } }
     ]);
 
-    const formattedCourseBreakdown = courseBreakdown.map(c => ({
-      course: c._id,
-      enquiries: c.enquiries,
-      converted: c.converted,
-      conversionRate: c.enquiries > 0 ? ((c.converted / c.enquiries) * 100).toFixed(1) : 0
-    }));
+    // Filter courses with enquiries > 0
+    const formattedCourseBreakdown = courseBreakdown
+      .filter(c => c.enquiries > 0)
+      .map(c => ({
+        course: c._id,
+        enquiries: c.enquiries,
+        converted: c.converted
+      }));
     
     return {
-      enquiries: {
-        today: todayEnquiries,
-        weekly: weeklyEnquiries,
-        monthly: monthlyEnquiries,
-        totalAssigned,
-        unassigned: unassignedCount
-      },
-      followUps: {
-        today: todayFollowUps,
-        overdue: overdueFollowUps
-      },
-      conversions,
+      totalEnquiries,
+      totalConversions,
+      today: todayCalls,
+      pendingFollowups,
+      enquiries: formattedRecentEnquiries,
+      upcomingFollowups: formattedUpcomingFollowups,
       courseBreakdown: formattedCourseBreakdown
     };
   }
@@ -400,13 +429,22 @@ class DashboardService {
       monthlyRevenue[monthNames[date.getMonth()]] = `₹${monthTotal.toLocaleString()}`;
     }
 
-    // Get today's calls count
-    const todayCallsFilter = {
-      ...enquiryFilter,
-      followUpDate: { $gte: today, $lt: tomorrow },
-      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
-    };
-    const todayCalls = await Enquiry.countDocuments(todayCallsFilter);
+    // Calculate today's calls: NEW enquiries + FOLLOW_UP with followUpDate <= today
+    const [newEnquiriesCount, followUpTodayCount] = await Promise.all([
+      // Count NEW enquiries
+      Enquiry.countDocuments({
+        ...enquiryFilter,
+        status: ENQUIRY_STATUSES.NEW
+      }),
+      // Count FOLLOW_UP enquiries with followUpDate <= today (including overdue)
+      Enquiry.countDocuments({
+        ...enquiryFilter,
+        status: ENQUIRY_STATUSES.FOLLOW_UP,
+        followUpDate: { $lte: today }
+      })
+    ]);
+    
+    const todayCalls = newEnquiriesCount + followUpTodayCount;
 
     // Get pending followups
     const pendingFollowupsFilter = {
@@ -427,7 +465,7 @@ class DashboardService {
       name: e.name,
       course: e.courseInterested,
       status: e.status,
-      date: this._formatDate(e.createdAt)
+      createdAt: e.createdAt.toISOString().split('T')[0]
     }));
 
     // Get upcoming followups (next 5)
@@ -518,33 +556,40 @@ class DashboardService {
       { $sort: { enquiries: -1 } }
     ]);
 
-    const formattedCourseBreakdown = courseBreakdown.map(c => ({
-      course: c._id,
-      enquiries: c.enquiries,
-      admissions: 0, // Will be populated from admission stats
-      revenue: 0,    // Will be populated from payment stats
-      converted: c.converted,
-      conversionRate: c.enquiries > 0 ? ((c.converted / c.enquiries) * 100).toFixed(1) : 0
-    }));
+    // Filter courses with enquiries > 0 and format
+    const formattedCourseBreakdown = courseBreakdown
+      .filter(c => c.enquiries > 0)
+      .map(c => ({
+        course: c._id,
+        enquiries: c.enquiries,
+        admissions: c.converted,
+        converted: c.converted,
+        conversionRate: c.enquiries > 0 ? ((c.converted / c.enquiries) * 100).toFixed(1) : 0
+      }));
+
+    // Get total conversions count
+    const totalConversions = await Enquiry.countDocuments({
+      ...enquiryFilter,
+      status: ENQUIRY_STATUSES.CONVERTED
+    });
 
     return {
       totalEnquiries,
+      totalConversions,
+      todayCalls,
+      pendingFollowups,
+      activeStudents,
       admissions: {
         totalAdmissions,
         activeStudents
       },
       revenue: {
         totalPaid,
-        pendingPayments,
-        monthly: monthlyRevenue
+        pendingPayments
       },
-      todayCalls,
-      pendingFollowups,
-      recentEnquiries: formattedRecentEnquiries,
+      enquiries: formattedRecentEnquiries,
       upcomingFollowups: formattedUpcomingFollowups,
-      sourceBreakdown: formattedSourceBreakdown,
       funnel,
-      hotLeads: formattedHotLeads,
       courseBreakdown: formattedCourseBreakdown
     };
   }

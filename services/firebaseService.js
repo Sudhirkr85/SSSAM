@@ -1,8 +1,61 @@
 const { getMessaging } = require('../config/firebase');
 const User = require('../models/User');
 
+// Deduplication cache - prevents duplicate notifications within time window
+const notificationCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 class FirebaseService {
+  // Generate unique key for deduplication
+  _getCacheKey(userId, title, body, data = {}) {
+    const dataKey = data.enquiryId || data.admissionId || data.type || '';
+    return `${userId}:${title}:${body}:${dataKey}`;
+  }
+
+  // Check if notification was recently sent
+  _isDuplicate(userId, title, body, data = {}) {
+    const key = this._getCacheKey(userId, title, body, data);
+    const cached = notificationCache.get(key);
+    
+    if (cached) {
+      const now = Date.now();
+      if (now - cached.timestamp < CACHE_TTL_MS) {
+        console.log(`Duplicate notification blocked: ${key}`);
+        return true;
+      }
+      // Expired entry, remove it
+      notificationCache.delete(key);
+    }
+    return false;
+  }
+
+  // Mark notification as sent
+  _markSent(userId, title, body, data = {}) {
+    const key = this._getCacheKey(userId, title, body, data);
+    notificationCache.set(key, { timestamp: Date.now() });
+    
+    // Cleanup old entries periodically
+    if (notificationCache.size > 1000) {
+      this._cleanupCache();
+    }
+  }
+
+  // Cleanup expired cache entries
+  _cleanupCache() {
+    const now = Date.now();
+    for (const [key, value] of notificationCache.entries()) {
+      if (now - value.timestamp > CACHE_TTL_MS) {
+        notificationCache.delete(key);
+      }
+    }
+  }
+
   async sendNotification(userId, title, body, data = {}) {
+    // Check for duplicates before sending
+    if (this._isDuplicate(userId, title, body, data)) {
+      return { success: false, message: 'Duplicate notification blocked', duplicate: true };
+    }
+
     try {
       const user = await User.findById(userId);
       if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
@@ -47,6 +100,11 @@ class FirebaseService {
       }
 
       const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      
+      // Mark as sent after successful delivery
+      if (successful > 0) {
+        this._markSent(userId, title, body, data);
+      }
       
       return { success: true, sent: successful, total: validTokens.length };
     } catch (error) {
