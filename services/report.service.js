@@ -5,16 +5,19 @@ class ReportService {
   getDateRange(range, customStartDate, customEndDate) {
     // If custom dates provided, use them with full day range
     if (customStartDate || customEndDate) {
-      const startDate = customStartDate ? new Date(customStartDate) : null;
-      const endDate = customEndDate ? new Date(customEndDate) : null;
-      
-      if (startDate) {
-        startDate.setHours(0, 0, 0, 0);
-      }
-      if (endDate) {
-        endDate.setHours(23, 59, 59, 999);
-      }
-      
+      // Parse dates using ISO format to avoid timezone issues
+      const parseDate = (dateStr, isEndOfDay = false) => {
+        if (!dateStr) return null;
+        if (isEndOfDay) {
+          return new Date(`${dateStr}T23:59:59.999Z`);
+        } else {
+          return new Date(`${dateStr}T00:00:00.000Z`);
+        }
+      };
+
+      const startDate = customStartDate ? parseDate(customStartDate, false) : null;
+      const endDate = customEndDate ? parseDate(customEndDate, true) : null;
+
       return { startDate, endDate };
     }
 
@@ -52,10 +55,10 @@ class ReportService {
     const hasDateFilter = startDate && endDate;
 
     // Build date filters dynamically
-    const admissionDateFilter = hasDateFilter ? { admissionDate: { $gte: startDate, $lte: endDate } } : {};
-    const enquiryDateFilter = hasDateFilter ? { createdAt: { $lte: endDate } } : {};
+    const admissionDateFilter = hasDateFilter ? { createdAt: { $gte: startDate, $lte: endDate } } : {};
+    const enquiryDateFilter = hasDateFilter ? { createdAt: { $gte: startDate, $lte: endDate } } : {};
     const convertedDateFilter = hasDateFilter ? { updatedAt: { $gte: startDate, $lte: endDate } } : {};
-    const previousPeriodFilter = hasDateFilter ? { admissionDate: { $lt: startDate } } : {};
+    const previousPeriodFilter = hasDateFilter ? { createdAt: { $lt: startDate } } : {};
 
     const [admissions, periodAdmissions, previousPeriodAdmissions, totalEnquiries] = await Promise.all([
       Admission.find(admissionDateFilter).populate('enquiryId', 'name'),
@@ -77,6 +80,7 @@ class ReportService {
 
     // Get source-wise statistics
     const sourceStats = await Enquiry.aggregate([
+      ...(hasDateFilter ? [{ $match: enquiryDateFilter }] : []),
       {
         $group: {
           _id: '$source',
@@ -88,7 +92,10 @@ class ReportService {
     // Get converted enquiries per source
     const convertedBySource = await Enquiry.aggregate([
       {
-        $match: { status: ENQUIRY_STATUSES.CONVERTED }
+        $match: { 
+          status: ENQUIRY_STATUSES.CONVERTED,
+          ...(hasDateFilter ? convertedDateFilter : {})
+        }
       },
       {
         $group: {
@@ -139,30 +146,23 @@ class ReportService {
     const { startDate, endDate } = this.getDateRange(range, customStartDate, customEndDate);
     const hasDateFilter = startDate && endDate;
 
-    // Build date filters dynamically
-    const paymentDateFilter = hasDateFilter ? { paymentDate: { $gte: startDate, $lte: endDate } } : {};
+    // Build date filters dynamically - use createdAt for more reliable filtering
+    const paymentDateFilter = hasDateFilter ? { createdAt: { $gte: startDate, $lte: endDate } } : {};
 
-    const [allAdmissions, paymentsInPeriod, totalRevenueAgg, periodRevenueAgg, allPaymentsAgg] = await Promise.all([
-      Admission.find(),
+    // If date filter is applied, get all data for that period, otherwise get all-time data
+    const [admissions, paymentsInPeriod, revenueAgg] = await Promise.all([
+      hasDateFilter ? Admission.find({ createdAt: { $gte: startDate, $lte: endDate } }) : Admission.find(),
       Payment.find(paymentDateFilter).populate('createdBy', 'name'),
-      Payment.aggregate([{ $group: { _id: null, total: { $sum: '$amount' } } }]),
       hasDateFilter
-        ? Payment.aggregate([{ $match: paymentDateFilter }, { $group: { _id: null, total: { $sum: '$amount' } } }])
-        : Promise.resolve([{ total: 0 }]),
-      Payment.aggregate([
-        { $match: { status: 'success', type: { $ne: 'refund' } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ])
+        ? Payment.aggregate([{ $match: { ...paymentDateFilter, status: 'success', type: { $ne: 'refund' } } }, { $group: { _id: null, total: { $sum: '$amount' } } }])
+        : Payment.aggregate([{ $match: { status: 'success', type: { $ne: 'refund' } } }, { $group: { _id: null, total: { $sum: '$amount' } } }])
     ]);
 
-    const totalFeesExpected = allAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
-    const totalPaid = allPaymentsAgg.length > 0 ? allPaymentsAgg[0].total : 0;
+    const totalFeesExpected = admissions.reduce((sum, a) => sum + a.totalFees, 0);
+    const totalRevenueCollected = revenueAgg.length > 0 ? revenueAgg[0].total : 0;
+    const totalPaid = totalRevenueCollected; // Use the same revenue calculation
     const totalPending = totalFeesExpected - totalPaid;
-
-    const totalRevenueCollected = totalRevenueAgg.length > 0 ? totalRevenueAgg[0].total : 0;
-    const revenueInPeriod = hasDateFilter
-      ? (periodRevenueAgg.length > 0 ? periodRevenueAgg[0].total : 0)
-      : totalRevenueCollected;
+    const revenueInPeriod = totalRevenueCollected; // Same as totalPaid when filtered
 
     return {
       range,
@@ -232,7 +232,7 @@ class ReportService {
             }),
             Admission.find({
               counselorId: counselor._id,
-              admissionDate: { $gte: startDate, $lte: endDate }
+              createdAt: { $gte: startDate, $lte: endDate }
             }),
             Payment.aggregate([
               { $match: { paymentDate: { $gte: startDate, $lte: endDate }, status: 'success', type: { $ne: 'refund' } } },
@@ -301,7 +301,7 @@ class ReportService {
       ? { createdAt: { $gte: startDate, $lte: endDate } } 
       : {};
     const admissionDateFilter = hasDateFilter 
-      ? { admissionDate: { $gte: startDate, $lte: endDate } } 
+      ? { createdAt: { $gte: startDate, $lte: endDate } } 
       : {};
     const paymentDateFilter = hasDateFilter
       ? { paymentDate: { $gte: startDate, $lte: endDate } }

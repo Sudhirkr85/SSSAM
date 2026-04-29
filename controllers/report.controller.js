@@ -4,14 +4,18 @@ const catchAsync = require('../utils/catchAsync');
 
 class ReportController {
   getAdmissionsReport = catchAsync(async (req, res) => {
-    const { range = 'daily', startDate, endDate } = req.query;
-    const report = await reportService.getAdmissionsReport(range, startDate, endDate);
+    const { range = 'daily', startDate, endDate, dateFrom, dateTo } = req.query;
+    const customStartDate = dateFrom || startDate;
+    const customEndDate = dateTo || endDate;
+    const report = await reportService.getAdmissionsReport(range, customStartDate, customEndDate);
     return successResponse(res, report, 'Admissions report generated successfully');
   });
 
   getFeesReport = catchAsync(async (req, res) => {
-    const { range = 'daily', startDate, endDate } = req.query;
-    const report = await reportService.getFeesReport(range, startDate, endDate);
+    const { range = 'daily', startDate, endDate, dateFrom, dateTo } = req.query;
+    const customStartDate = dateFrom || startDate;
+    const customEndDate = dateTo || endDate;
+    const report = await reportService.getFeesReport(range, customStartDate, customEndDate);
     return successResponse(res, report, 'Fees report generated successfully');
   });
 
@@ -21,14 +25,18 @@ class ReportController {
   });
 
   getCounselorPerformance = catchAsync(async (req, res) => {
-    const { range = 'monthly', startDate, endDate } = req.query;
-    const report = await reportService.getCounselorPerformance(range, startDate, endDate);
+    const { range = 'monthly', startDate, endDate, dateFrom, dateTo } = req.query;
+    const customStartDate = dateFrom || startDate;
+    const customEndDate = dateTo || endDate;
+    const report = await reportService.getCounselorPerformance(range, customStartDate, customEndDate);
     return successResponse(res, report, 'Counselor performance report generated successfully');
   });
 
   getCoursePerformance = catchAsync(async (req, res) => {
-    const { startDate, endDate } = req.query;
-    const report = await reportService.getCoursePerformance(startDate, endDate);
+    const { startDate, endDate, dateFrom, dateTo } = req.query;
+    const customStartDate = dateFrom || startDate;
+    const customEndDate = dateTo || endDate;
+    const report = await reportService.getCoursePerformance(customStartDate, customEndDate);
     return successResponse(res, report, 'Course performance report generated successfully');
   });
 

@@ -12,7 +12,15 @@ const reportRangeValidation = [
   query('endDate')
     .optional()
     .isISO8601()
-    .withMessage('endDate must be a valid ISO 8601 date (YYYY-MM-DD)')
+    .withMessage('endDate must be a valid ISO 8601 date (YYYY-MM-DD)'),
+  query('dateFrom')
+    .optional()
+    .isISO8601()
+    .withMessage('dateFrom must be a valid ISO 8601 date (YYYY-MM-DD)'),
+  query('dateTo')
+    .optional()
+    .isISO8601()
+    .withMessage('dateTo must be a valid ISO 8601 date (YYYY-MM-DD)')
 ];
 
 module.exports = {

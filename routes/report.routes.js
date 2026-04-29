@@ -45,6 +45,8 @@ router.get(
 router.get(
   '/course-performance',
   roleMiddleware(ROLES.ADMIN),
+  reportRangeValidation,
+  validateRequest,
   reportController.getCoursePerformance
 );
 

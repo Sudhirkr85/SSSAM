@@ -503,22 +503,24 @@ class PaymentService {
   }
 
   async listPayments(queryParams, user = null) {
-    const { page = 1, limit = 10, admissionId, startDate, endDate, search } = queryParams;
+    const { page = 1, limit = 10, admissionId, startDate, endDate, dateFrom, dateTo, search } = queryParams;
+    const effectiveStartDate = dateFrom || startDate;
+    const effectiveEndDate = dateTo || endDate;
     const skip = (page - 1) * limit;
 
     const filter = { isDeleted: false };
     if (admissionId) filter.admissionId = admissionId;
     
     // Date filter with full day range
-    if (startDate || endDate) {
+    if (effectiveStartDate || effectiveEndDate) {
       filter.paymentDate = {};
-      if (startDate) {
-        const start = new Date(startDate);
+      if (effectiveStartDate) {
+        const start = new Date(effectiveStartDate);
         start.setHours(0, 0, 0, 0);
         filter.paymentDate.$gte = start;
       }
-      if (endDate) {
-        const end = new Date(endDate);
+      if (effectiveEndDate) {
+        const end = new Date(effectiveEndDate);
         end.setHours(23, 59, 59, 999);
         filter.paymentDate.$lte = end;
       }
