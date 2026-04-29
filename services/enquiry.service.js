@@ -383,6 +383,46 @@ class EnquiryService {
     };
   }
 
+  async assignEnquiry(enquiryId, counselorId, user) {
+    // Only admin can assign enquiries
+    if (user.role !== ROLES.ADMIN) {
+      throw new AppError('Only admins can assign enquiries to counselors', 403);
+    }
+
+    const enquiry = await Enquiry.findOne({ _id: enquiryId, isDeleted: false });
+    if (!enquiry) {
+      throw new AppError('Enquiry not found', 404);
+    }
+
+    // Validate counselor exists and has counselor role
+    const { User } = require('../models');
+    const counselor = await User.findById(counselorId);
+    if (!counselor) {
+      throw new AppError('Counselor not found', 404);
+    }
+    if (counselor.role !== ROLES.COUNSELOR) {
+      throw new AppError('Selected user is not a counselor', 400);
+    }
+
+    // Update assignedTo
+    await Enquiry.findByIdAndUpdate(enquiryId, {
+      $set: {
+        assignedTo: counselorId,
+        updatedAt: new Date()
+      },
+      $push: {
+        statusHistory: {
+          status: enquiry.status,
+          note: `Assigned to counselor: ${counselor.name}`,
+          changedBy: user.id,
+          changedAt: new Date()
+        }
+      }
+    });
+
+    return await this.getEnquiryById(enquiryId);
+  }
+
   async deleteEnquiry(id, user) {
     // Only admins can delete records
     if (user.role !== ROLES.ADMIN) {

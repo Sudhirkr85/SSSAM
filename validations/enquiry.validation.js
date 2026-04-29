@@ -208,10 +208,22 @@ const publicEnquiryValidation = [
     .normalizeEmail()
 ];
 
+const assignEnquiryValidation = [
+  param('id')
+    .isMongoId()
+    .withMessage('Please provide a valid enquiry ID'),
+  body('counselorId')
+    .notEmpty()
+    .withMessage('Counselor ID is required')
+    .isMongoId()
+    .withMessage('Please provide a valid counselor ID')
+];
+
 module.exports = {
   createEnquiryValidation,
   updateEnquiryValidation,
   listEnquiriesValidation,
   enquiryIdParamValidation,
-  publicEnquiryValidation
+  publicEnquiryValidation,
+  assignEnquiryValidation
 };

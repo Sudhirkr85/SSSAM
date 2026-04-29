@@ -123,6 +123,31 @@ class EnquiryController {
     );
   });
 
+  // PUT /enquiries/:id/assign - Assign enquiry to counselor (admin only)
+  assignEnquiry = catchAsync(async (req, res) => {
+    const { counselorId } = req.body;
+    
+    const enquiry = await enquiryService.assignEnquiry(
+      req.params.id,
+      counselorId,
+      req.user
+    );
+    
+    // Send notification to assigned counselor
+    await firebaseService.sendNotification(
+      counselorId,
+      'New Enquiry Assigned',
+      `${enquiry.name} - ${enquiry.mobile} assigned to you`,
+      { type: 'enquiry_assigned', enquiryId: enquiry._id.toString() }
+    );
+    
+    return successResponse(
+      res,
+      { enquiry },
+      'Enquiry assigned to counselor successfully'
+    );
+  });
+
   // POST /public/enquiries - Public endpoint for website submissions
   createPublicEnquiry = catchAsync(async (req, res) => {
     const result = await enquiryService.createPublicEnquiry(req.body);
