@@ -47,6 +47,14 @@ const createEnquiryValidation = [
     .matches(/^[0-9]{10}$/)
     .withMessage('Please provide a valid 10-digit mobile number'),
 
+  body('walkInBroughtBy')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Walk-in brought by name cannot be empty')
+    .isLength({ max: 100 })
+    .withMessage('Walk-in brought by name cannot exceed 100 characters'),
+
   body('assignedTo')
     .optional()
     .isMongoId()
@@ -84,7 +92,7 @@ const updateEnquiryValidation = [
     .isISO8601()
     .withMessage('Please provide a valid date')
     .toDate(),
-  
+
   // Custom validation: if status is FOLLOW_UP, followUpDate is required
   body()
     .custom((value, { req }) => {

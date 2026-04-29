@@ -188,7 +188,7 @@ class EnquiryService {
 
   // Single update API - handles status + note + followUpDate
   async updateEnquiry(enquiryId, data, user) {
-    const { status, note, followUpDate } = data;
+    const { status, note, followUpDate, walkInBroughtBy } = data;
 
     const enquiry = await Enquiry.findOne({ _id: enquiryId, isDeleted: false });
     if (!enquiry) throw new AppError('Enquiry not found', 404);

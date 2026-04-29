@@ -71,6 +71,12 @@ const enquirySchema = new mongoose.Schema({
     match: [/^[0-9]{10}$/, 'Please provide a valid 10-digit mobile number'],
     default: null
   },
+  walkInBroughtBy: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Walk-in brought by name cannot exceed 100 characters'],
+    default: null
+  },
   status: {
     type: String,
     enum: STATUS_LIST,
