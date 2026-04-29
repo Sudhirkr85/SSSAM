@@ -17,7 +17,8 @@ const {
   listEnquiriesValidation,
   enquiryIdParamValidation,
   publicEnquiryValidation,
-  assignEnquiryValidation
+  assignEnquiryValidation,
+  updateEnquiryDetailsValidation
 } = require('../validations');
 
 // POST /public/enquiries - Public endpoint for website submissions (no auth required)
@@ -86,6 +87,17 @@ router.put(
   assignEnquiryValidation,
   validateRequest,
   enquiryController.assignEnquiry
+);
+
+// PUT /enquiries/:id/details - Update complete enquiry details
+router.put(
+  '/:id/details',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  enquiryIdParamValidation,
+  updateEnquiryDetailsValidation,
+  validateRequest,
+  enquiryAccessMiddleware,
+  enquiryController.updateEnquiryDetails
 );
 
 // DELETE /enquiries/:id - Delete enquiry (admin only)

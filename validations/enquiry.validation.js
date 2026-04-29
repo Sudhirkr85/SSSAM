@@ -227,11 +227,69 @@ const assignEnquiryValidation = [
     .withMessage('Please provide a valid counselor ID')
 ];
 
+const updateEnquiryDetailsValidation = [
+  param('id')
+    .isMongoId()
+    .withMessage('Please provide a valid enquiry ID'),
+  
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Name is required')
+    .isLength({ max: 100 })
+    .withMessage('Name cannot exceed 100 characters'),
+
+  body('email')
+    .optional()
+    .trim()
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail(),
+
+  body('mobile')
+    .trim()
+    .notEmpty()
+    .withMessage('Mobile number is required')
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
+
+  body('courseInterested')
+    .trim()
+    .notEmpty()
+    .withMessage('Course interested is required')
+    .isLength({ max: 100 })
+    .withMessage('Course interested cannot exceed 100 characters'),
+
+  body('source')
+    .optional()
+    .isIn(Object.values(ENQUIRY_SOURCES))
+    .withMessage(`Source must be one of: ${Object.values(ENQUIRY_SOURCES).join(', ')}`),
+
+  body('referenceName')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Reference name cannot exceed 100 characters'),
+
+  body('referenceContact')
+    .optional()
+    .trim()
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
+
+  body('walkInBroughtBy')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Walk-in brought by name cannot exceed 100 characters')
+];
+
 module.exports = {
   createEnquiryValidation,
   updateEnquiryValidation,
   listEnquiriesValidation,
   enquiryIdParamValidation,
   publicEnquiryValidation,
-  assignEnquiryValidation
+  assignEnquiryValidation,
+  updateEnquiryDetailsValidation
 };

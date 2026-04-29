@@ -166,6 +166,21 @@ class EnquiryController {
       201
     );
   });
+
+  // PUT /enquiries/:id/details - Update complete enquiry details
+  updateEnquiryDetails = catchAsync(async (req, res) => {
+    const result = await enquiryService.updateEnquiryDetails(
+      req.params.id,
+      req.body,
+      req.user
+    );
+    
+    return successResponse(
+      res,
+      { enquiry: result },
+      'Enquiry details updated successfully'
+    );
+  });
 }
 
 module.exports = new EnquiryController();

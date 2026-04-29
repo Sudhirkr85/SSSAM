@@ -423,6 +423,67 @@ class EnquiryService {
     return await this.getEnquiryById(enquiryId);
   }
 
+  async updateEnquiryDetails(enquiryId, data, user) {
+    const { name, email, mobile, courseInterested, source, referenceName, referenceContact, walkInBroughtBy } = data;
+
+    const enquiry = await Enquiry.findOne({ _id: enquiryId, isDeleted: false });
+    if (!enquiry) throw new AppError('Enquiry not found', 404);
+
+    // Access control
+    if (!canModifyEnquiry(user, enquiry)) {
+      throw new AppError('Access denied. You can only modify enquiries assigned to you.', 403);
+    }
+
+    // Check if converted (locked for non-admins)
+    if (enquiry.status === ENQUIRY_STATUSES.CONVERTED && user.role !== ROLES.ADMIN) {
+      throw new AppError('Converted enquiries can only be modified by admin', 403);
+    }
+
+    // Check if mobile number already exists for another enquiry
+    if (mobile !== enquiry.mobile) {
+      const existingEnquiry = await Enquiry.findOne({ 
+        mobile, 
+        isDeleted: false, 
+        _id: { $ne: enquiryId } 
+      });
+      if (existingEnquiry) {
+        throw new AppError('Mobile number already exists for another enquiry', 400);
+      }
+    }
+
+    // Build update data
+    const updateData = {
+      name: name.trim(),
+      email: email ? email.trim().toLowerCase() : null,
+      mobile,
+      courseInterested: courseInterested.trim(),
+      updatedAt: new Date()
+    };
+
+    // Add optional fields if provided
+    if (source !== undefined) updateData.source = source;
+    if (referenceName !== undefined) updateData.referenceName = referenceName ? referenceName.trim() : null;
+    if (referenceContact !== undefined) updateData.referenceContact = referenceContact ? referenceContact.trim() : null;
+    if (walkInBroughtBy !== undefined) updateData.walkInBroughtBy = walkInBroughtBy ? walkInBroughtBy.trim() : null;
+
+    // Update enquiry
+    await Enquiry.findByIdAndUpdate(enquiryId, updateData);
+
+    // Add status history entry for details update
+    await Enquiry.findByIdAndUpdate(enquiryId, {
+      $push: {
+        statusHistory: {
+          status: enquiry.status,
+          note: 'Enquiry details updated',
+          changedBy: user.id,
+          changedAt: new Date()
+        }
+      }
+    });
+
+    return await this.getEnquiryById(enquiryId);
+  }
+
   async deleteEnquiry(id, user) {
     // Only admins can delete records
     if (user.role !== ROLES.ADMIN) {
