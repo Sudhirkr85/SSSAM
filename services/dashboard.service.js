@@ -340,8 +340,15 @@ class DashboardService {
   }
 
   // Get full dashboard with role-based filtering
-  async getDashboard(user) {
+  async getDashboard(user, dateRange = null, dateFrom = null, dateTo = null) {
     const isAdmin = user.role === ROLES.ADMIN;
+    
+    // Get date filter if provided
+    let dateFilter = null;
+    if (dateRange || dateFrom || dateTo) {
+      dateFilter = this._getDateFilterForRange(dateRange, dateFrom, dateTo);
+    }
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -350,6 +357,12 @@ class DashboardService {
     // Build base filter for role-based access
     const enquiryFilter = { isDeleted: false };
     const admissionFilter = { isDeleted: false };
+    
+    // Add date filter if provided
+    if (dateFilter) {
+      enquiryFilter.createdAt = dateFilter;
+      admissionFilter.createdAt = dateFilter;
+    }
     
     if (!isAdmin) {
       // Counselor: only see their assigned enquiries and admissions
@@ -614,6 +627,48 @@ class DashboardService {
   _formatTime(date) {
     const d = new Date(date);
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  }
+
+  _getDateFilterForRange(range, dateFrom, dateTo) {
+    if (dateFrom || dateTo) {
+      // Custom date range
+      const filter = {};
+      if (dateFrom) {
+        filter.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      }
+      if (dateTo) {
+        filter.$lte = new Date(`${dateTo}T23:59:59.999Z`);
+      }
+      return filter;
+    }
+
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    switch (range) {
+      case 'today':
+        return { $gte: startOfDay, $lte: endOfDay };
+      case 'last7days':
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - 6);
+        weekStart.setHours(0, 0, 0, 0);
+        return { $gte: weekStart, $lte: endOfDay };
+      case 'thisMonth':
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        monthStart.setHours(0, 0, 0, 0);
+        return { $gte: monthStart, $lte: endOfDay };
+      case 'thisYear':
+        const yearStart = new Date(now.getFullYear(), 0, 1);
+        yearStart.setHours(0, 0, 0, 0);
+        return { $gte: yearStart, $lte: endOfDay };
+      case 'all':
+        return null; // No date filter
+      default:
+        return null;
+    }
   }
 }
 

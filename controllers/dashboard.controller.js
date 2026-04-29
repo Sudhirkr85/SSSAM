@@ -6,7 +6,8 @@ const { ROLES } = require('../config/constants');
 class DashboardController {
   // GET /dashboard - Full dashboard stats
   getDashboard = catchAsync(async (req, res) => {
-    const dashboard = await dashboardService.getDashboard(req.user);
+    const { dateRange, dateFrom, dateTo } = req.query;
+    const dashboard = await dashboardService.getDashboard(req.user, dateRange, dateFrom, dateTo);
     
     return successResponse(
       res,
