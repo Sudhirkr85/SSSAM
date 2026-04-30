@@ -554,7 +554,16 @@ class EnquiryService {
     if (query.followUpToday === 'true' || query.followUpToday === true) {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      filter.followUpDate = { $gte: today, $lt: tomorrow };
+      filter.$and = filter.$and || [];
+      filter.$and.push({
+        $or: [
+          { status: ENQUIRY_STATUSES.NEW },
+          { 
+            followUpDate: { $gte: today, $lt: tomorrow },
+            status: { $nin: [ENQUIRY_STATUSES.CONVERTED, ENQUIRY_STATUSES.NOT_INTERESTED] }
+          }
+        ]
+      });
     } else if (query.followUpOverdue === 'true' || query.followUpOverdue === true) {
       filter.followUpDate = { $lt: today };
       filter.status = { $ne: ENQUIRY_STATUSES.CONVERTED };
