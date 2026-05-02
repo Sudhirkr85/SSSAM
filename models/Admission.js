@@ -1,41 +1,41 @@
 const mongoose = require('mongoose');
-const { ADMISSION_STATUSES, PAYMENT_MODES, INSTALLMENT_STATUSES, PAYMENT_TYPES } = require('../config/constants');
-
-const installmentSchema = new mongoose.Schema({
-  amount: {
-    type: Number,
-    required: [true, 'Installment amount is required'],
-    min: [1, 'Installment amount must be greater than 0']
-  },
-  dueDate: {
-    type: Date,
-    required: [true, 'Due date is required'],
-    validate: {
-      validator: function(value) {
-        return value >= new Date();
-      },
-      message: 'Due date must be in the future'
-    }
-  },
-  status: {
-    type: String,
-    enum: Object.values(INSTALLMENT_STATUSES),
-    default: INSTALLMENT_STATUSES.PENDING
-  }
-}, { _id: true });
+const { ADMISSION_STATUSES } = require('../config/constants');
 
 const admissionSchema = new mongoose.Schema({
-  enquiryId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Enquiry',
-    required: [true, 'Enquiry ID is required'],
-    unique: true
+  name: {
+    type: String,
+    required: [true, 'Name is required'],
+    trim: true,
+    maxlength: [100, 'Name cannot exceed 100 characters']
+  },
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    default: null,
+    match: [
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      'Please provide a valid email address'
+    ]
+  },
+  mobile: {
+    type: String,
+    required: [true, 'Mobile number is required'],
+    trim: true,
+    match: [
+      /^[0-9]{10}$/,
+      'Please provide a valid 10-digit mobile number'
+    ]
   },
   course: {
     type: String,
     required: [true, 'Course is required'],
     trim: true,
     maxlength: [100, 'Course cannot exceed 100 characters']
+  },
+  admissionDate: {
+    type: Date,
+    default: Date.now
   },
   totalFees: {
     type: Number,
@@ -47,57 +47,16 @@ const admissionSchema = new mongoose.Schema({
     required: [true, 'Registration amount is required'],
     min: [1, 'Registration amount must be greater than 0']
   },
-  paymentType: {
-    type: String,
-    enum: Object.values(PAYMENT_TYPES),
-    required: [true, 'Payment type is required']
-  },
-  fullPaymentDueDate: {
-    type: Date,
-    default: null,
-    validate: {
-      validator: function(value) {
-        if (value === null) return true;
-        return value >= new Date();
-      },
-      message: 'Full payment due date must be in the future'
-    }
-  },
   status: {
     type: String,
     enum: Object.values(ADMISSION_STATUSES),
     default: ADMISSION_STATUSES.ACTIVE
-  },
-  installments: {
-    type: [installmentSchema],
-    default: []
-  },
-  paymentMethod: {
-    type: String,
-    enum: Object.values(PAYMENT_MODES),
-    default: null
-  },
-  nextDueDate: {
-    type: Date,
-    default: null,
-    validate: {
-      validator: function(value) {
-        if (value === null) return true;
-        return value >= new Date();
-      },
-      message: 'Next due date must be in the future'
-    }
   },
   counselorId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  isLocked: {
-    type: Boolean,
-    default: false
-  },
-  // Write-off fields for student stopped coming
   isDefaulted: {
     type: Boolean,
     default: false
@@ -106,34 +65,15 @@ const admissionSchema = new mongoose.Schema({
     type: Number,
     default: null,
     min: [0, 'Write-off amount cannot be negative']
-  },
-  writeOffReason: {
-    type: String,
-    trim: true,
-    maxlength: [500, 'Write-off reason cannot exceed 500 characters']
-  },
-  isDeleted: {
-    type: Boolean,
-    default: false
-  },
-  deletedAt: {
-    type: Date,
-    default: null
-  },
-  deletedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
   }
 }, {
   timestamps: true
 });
 
 
-// Note: enquiryId index is automatically created by unique: true
 admissionSchema.index({ counselorId: 1 });
 admissionSchema.index({ createdAt: -1 });
-admissionSchema.index({ isLocked: 1 });
 admissionSchema.index({ status: 1 });
+admissionSchema.index({ mobile: 1 });
 
 module.exports = mongoose.model('Admission', admissionSchema);

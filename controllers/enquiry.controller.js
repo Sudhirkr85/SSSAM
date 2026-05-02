@@ -10,7 +10,7 @@ class EnquiryController {
     // Send notification to all counselors and admin
     await firebaseService.sendToAdminAndCounselors(
       'New Enquiry',
-      `${result.name} - ${result.mobile} - ${result.courseInterested}`,
+      `${result.name} - ${result.mobile} - ${result.course}`,
       { type: 'enquiry_created', enquiryId: result._id.toString() }
     );
     
@@ -43,83 +43,18 @@ class EnquiryController {
     );
   });
 
-  // GET /enquiries/all - All enquiries (read-only for counselor)
-  listAllEnquiries = catchAsync(async (req, res) => {
-    const result = await enquiryService.listAllEnquiries(req.query, req.user);
-    
-    return paginatedResponse(
-      res,
-      result.enquiries,
-      result.pagination,
-      'All enquiries retrieved successfully'
-    );
-  });
-
-  // PUT /enquiries/:id/update - Combined API for status + note + followUpDate
+  // PUT /enquiries/:id/update - Full update API
   updateEnquiry = catchAsync(async (req, res) => {
-    const { status, note, followUpDate } = req.body;
-    
-    const result = await enquiryService.updateEnquiry(
+    const enquiry = await enquiryService.updateEnquiry(
       req.params.id,
-      { status, note, followUpDate },
+      req.body,
       req.user
     );
     
-    let message = 'Enquiry updated successfully';
-    if (result.autoAssigned && result.requiresPaymentSetup) {
-      message = 'Enquiry updated, auto-assigned to you, and requires payment setup';
-    } else if (result.autoAssigned) {
-      message = 'Enquiry updated and auto-assigned to you';
-    } else if (result.requiresPaymentSetup) {
-      message = 'Enquiry converted successfully. Please set up payment details.';
-    }
-    
-    // Send notification when enquiry is converted to CONVERTED status
-    if (status === 'CONVERTED' && result.enquiry) {
-      const notificationData = {
-        type: 'enquiry_converted',
-        enquiryId: result.enquiry._id.toString(),
-        name: result.enquiry.name,
-        mobile: result.enquiry.mobile,
-        course: result.enquiry.courseInterested,
-      };
-      
-      // Notify assigned counselor
-      if (result.enquiry.assignedTo) {
-        await firebaseService.sendNotification(
-          result.enquiry.assignedTo,
-          'Enquiry Converted',
-          `${result.enquiry.name} converted. Set up admission details.`,
-          notificationData
-        );
-      }
-      
-      // Notify admin
-      await firebaseService.sendToAdmin(
-        'Enquiry Converted',
-        `${result.enquiry.name} (${result.enquiry.mobile}) converted. Admission setup pending.`,
-        notificationData
-      );
-    }
-    
     return successResponse(
       res,
-      { 
-        enquiry: result.enquiry, 
-        autoAssigned: result.autoAssigned,
-        requiresPaymentSetup: result.requiresPaymentSetup 
-      },
-      message
-    );
-  });
-
-  deleteEnquiry = catchAsync(async (req, res) => {
-    await enquiryService.deleteEnquiry(req.params.id, req.user);
-    
-    return successResponse(
-      res,
-      null,
-      'Enquiry deleted successfully'
+      { enquiry },
+      'Enquiry updated successfully'
     );
   });
 
@@ -155,7 +90,7 @@ class EnquiryController {
     // Send notification to all counselors and admin
     await firebaseService.sendToAdminAndCounselors(
       'New Enquiry (Website)',
-      `${result.name} - ${result.mobile} - ${result.courseInterested}`,
+      `${result.name} - ${result.mobile} - ${result.course}`,
       { type: 'enquiry_created', enquiryId: result._id.toString(), source: 'website' }
     );
     
@@ -167,20 +102,6 @@ class EnquiryController {
     );
   });
 
-  // PUT /enquiries/:id/details - Update complete enquiry details
-  updateEnquiryDetails = catchAsync(async (req, res) => {
-    const result = await enquiryService.updateEnquiryDetails(
-      req.params.id,
-      req.body,
-      req.user
-    );
-    
-    return successResponse(
-      res,
-      { enquiry: result },
-      'Enquiry details updated successfully'
-    );
-  });
 }
 
 module.exports = new EnquiryController();

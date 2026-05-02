@@ -5,9 +5,6 @@ const { enquiryController } = require('../controllers');
 const {
   authMiddleware,
   roleMiddleware,
-  enquiryAccessMiddleware,
-  enquiryOwnershipMiddleware,
-  listAccessMiddleware,
   validateRequest
 } = require('../middleware');
 const { ROLES } = require('../config/constants');
@@ -17,8 +14,7 @@ const {
   listEnquiriesValidation,
   enquiryIdParamValidation,
   publicEnquiryValidation,
-  assignEnquiryValidation,
-  updateEnquiryDetailsValidation
+  assignEnquiryValidation
 } = require('../validations');
 
 // POST /public/enquiries - Public endpoint for website submissions (no auth required)
@@ -40,23 +36,13 @@ router.post(
   enquiryController.createEnquiry
 );
 
-// GET /enquiries - List enquiries (counselor: assigned + unassigned only)
+// GET /enquiries - List enquiries
 router.get(
   '/',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  listAccessMiddleware,
   listEnquiriesValidation,
   validateRequest,
   enquiryController.listEnquiries
-);
-
-// GET /enquiries/all - List ALL enquiries (read-only for counselor)
-router.get(
-  '/all',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  listEnquiriesValidation,
-  validateRequest,
-  enquiryController.listAllEnquiries
 );
 
 // GET /enquiries/:id - Get single enquiry
@@ -65,18 +51,16 @@ router.get(
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   enquiryIdParamValidation,
   validateRequest,
-  enquiryAccessMiddleware,
   enquiryController.getEnquiry
 );
 
-// PUT /enquiries/:id/update - Combined API: update status + note + followUpDate
+// PUT /enquiries/:id/update - Full update API (no restrictions)
 router.put(
-  '/:id/update',
+  '/:id',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   enquiryIdParamValidation,
   updateEnquiryValidation,
   validateRequest,
-  enquiryOwnershipMiddleware,
   enquiryController.updateEnquiry
 );
 
@@ -87,26 +71,6 @@ router.put(
   assignEnquiryValidation,
   validateRequest,
   enquiryController.assignEnquiry
-);
-
-// PUT /enquiries/:id/details - Update complete enquiry details
-router.put(
-  '/:id/details',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  enquiryIdParamValidation,
-  updateEnquiryDetailsValidation,
-  validateRequest,
-  enquiryAccessMiddleware,
-  enquiryController.updateEnquiryDetails
-);
-
-// DELETE /enquiries/:id - Delete enquiry (admin only)
-router.delete(
-  '/:id',
-  roleMiddleware(ROLES.ADMIN),
-  enquiryIdParamValidation,
-  validateRequest,
-  enquiryController.deleteEnquiry
 );
 
 module.exports = router;

@@ -1,6 +1,45 @@
 # Institute Enquiry Management System
 
-A production-ready CRM backend for managing institute enquiries, admissions, and payments with strict ownership, clean architecture, and scalable design.
+A production-ready CRM backend for managing institute enquiries, admissions, and payments.
+
+## Updated Model Structure (May 2026)
+
+### Enquiry Model
+```javascript
+{
+  name, email, mobile, course,
+  source, referenceName, referenceContact, walkInBroughtBy,
+  status, assignedTo, followUpDate,
+  statusHistory: [{ status, note, changedBy, changedAt }],
+  createdBy, createdAt, updatedAt
+}
+```
+
+### Admission Model (Independent - No Enquiry Link)
+```javascript
+{
+  name, email, mobile, course, admissionDate,
+  totalFees, registrationAmount, status,
+  createdBy, updatedBy, createdAt, updatedAt,
+  counselorId, isDefaulted, writeOffAmount
+}
+```
+
+### Payment Model (Simplified)
+```javascript
+{
+  admissionId, amount, paymentMode, paymentDate, note,
+  createdBy, createdAt, updatedAt
+}
+```
+
+## Key Changes (May 2026)
+- **Enquiry simplified**: No access restrictions, no delete, single PUT for all updates
+- **Enquiry & Admission are independent** (no enquiryId reference)
+- **No restrictions** on status changes (no CONVERTED lock, no note requirement)
+- **No soft delete** - removed isDeleted fields
+- **Simplified Payment** - removed type, status, refund fields, cancellation fields
+- Admission can be edited **anytime** by anyone (no isLocked)
 
 ## Tech Stack
 
@@ -9,14 +48,13 @@ A production-ready CRM backend for managing institute enquiries, admissions, and
 - JWT Authentication
 - Bcrypt for password hashing
 - Clean Architecture (Controllers, Services, Models, Middlewares, Utils)
-- Transaction Support (with fallback)
 
 ## Features
 
 - **Role-based access control**: Admin (full access) & Counselor (restricted access)
-- **Strict Ownership**: Counselors can only access their assigned + unassigned enquiries
+- **No Ownership Restrictions**: Anyone can access/update any enquiry
 - **Auto-assignment logic**: First action auto-assigns unassigned enquiries
-- **Combined Update API**: Status + Note + FollowUpDate in ONE request
+- **Single Update API**: All fields in one PUT request
 - **Follow-up Management**: Today and overdue follow-up tracking
 - **Admission & Payment Tracking**: Full financial management
 - **Dashboard APIs**: Revenue, enquiries, and follow-up statistics
@@ -63,29 +101,36 @@ npm start
 | POST | `/api/auth/login` | Public | Login user |
 | POST | `/api/auth/register` | Admin only | Register new user |
 
-### Enquiries
+### Enquiries (Simplified - No Restrictions)
 
 | Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
 | POST | `/api/enquiries` | Admin, Counselor | Create enquiry |
-| GET | `/api/enquiries` | Admin, Counselor | List enquiries (counselor: assigned + unassigned only) |
-| GET | `/api/enquiries/all` | Admin, Counselor | List ALL enquiries (read-only for counselor) |
+| GET | `/api/enquiries` | Admin, Counselor | List all enquiries |
 | GET | `/api/enquiries/:id` | Admin, Counselor | Get single enquiry |
-| PUT | `/api/enquiries/:id/update` | Admin, Counselor | **Combined API**: Update status + note + followUpDate |
-| DELETE | `/api/enquiries/:id` | Admin only | Delete enquiry |
+| PUT | `/api/enquiries/:id` | Admin, Counselor | **Full Update** - Any field, anytime, no restrictions |
+| POST | `/api/bulk-upload/enquiries` | Admin | Bulk upload from Excel |
+| POST | `/api/enquiries/public` | Public | Website enquiry form |
+| PUT | `/api/enquiries/:id/assign` | Admin only | Assign to counselor |
 
-**Combined Update API (PUT /api/enquiries/:id/update)**:
+**Full Update API (PUT /api/enquiries/:id)**:
 ```json
 {
+  "name": "Ram Kumar",
+  "email": "ram@example.com",
+  "mobile": "9876543210",
+  "course": "Full Stack Development",
   "status": "FOLLOW_UP",
-  "note": "Called the student, will follow up tomorrow",
-  "followUpDate": "2026-04-15"
+  "note": "Called the student",
+  "followUpDate": "2026-04-15",
+  "assignedTo": "counselorId"
 }
 ```
 **Rules**:
-- Note is required when updating status
-- `followUpDate` is required when status is `FOLLOW_UP`
-- Converted enquiries are locked (admin can still edit)
+- **No restrictions** - Any field can be updated anytime by anyone
+- Note is **optional** for status changes
+- History automatically saved with `changedBy` user info
+- `followUpDate` required only when status is `FOLLOW_UP`
 
 **Status Enum**:
 - `NEW`, `CONTACTED`, `NO_RESPONSE`, `FOLLOW_UP`, `INTERESTED`, `NOT_INTERESTED`, `ADMISSION_PROCESS`, `CONVERTED`
@@ -135,10 +180,9 @@ npm start
 
 ### Counselor
 - Can create enquiries (auto-assigned to them)
-- Can access: unassigned enquiries + their assigned enquiries
-- **Cannot**: Edit other counselors' enquiries, delete enquiries
-- First action on unassigned enquiry auto-assigns it
-- Cannot edit converted enquiries
+- Can access all enquiries (no restrictions)
+- Can edit any enquiry including converted ones
+- Cannot delete enquiries (no delete API)
 
 ## Critical Business Rules
 
@@ -148,21 +192,27 @@ npm start
    - First counselor action on unassigned → Auto assigned
 
 2. **Access Control**:
-   - Counselor can access if: `enquiry.assignedTo === null` OR `enquiry.assignedTo === user.id`
-   - Others are blocked with 403
+   - No access restrictions - anyone can view/update any enquiry
+   - History tracking shows who made changes (`changedBy` field)
 
-3. **Status Update Rules**:
-   - Every status update MUST include a note
+3. **Status Update Rules** (No Restrictions):
+   - Status can be changed **anytime** by anyone
+   - Note is **optional** for status changes
+   - No lock on `CONVERTED` enquiries
    - `FOLLOW_UP` status requires `followUpDate`
-   - `CONVERTED` enquiries are locked (only admin can edit)
 
 4. **Follow-up Logic**:
    - Today follow-ups: `followUpDate === today`
    - Overdue: `followUpDate < today` AND not converted
    - Default view: today + overdue follow-ups
 
-5. **Admission Conversion**:
-   - Requires: course, total fees, installment plan
-   - Creates Admission record linked to enquiry
-   - Counselor can add payments and modify installments
-   - Admin has full financial control
+5. **Admission** (Independent from Enquiry):
+   - Admission has its own student data (name, email, mobile, course)
+   - No link to Enquiry model
+   - Can be edited **anytime** by anyone (no locks)
+   - Same student can have multiple admissions for different courses
+
+6. **Payment** (Simplified):
+   - Simple payment record with amount, mode, date, note
+   - No payment types, statuses, refund tracking
+   - Notes can describe payment type ("initial", "full", "refund")

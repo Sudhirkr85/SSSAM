@@ -1,6 +1,5 @@
-const { Enquiry, Admission } = require('../models');
+const { Enquiry } = require('../models');
 const { ROLES, PAGINATION, ENQUIRY_STATUSES } = require('../config/constants');
-const { canModifyEnquiry } = require('../utils/accessControl');
 const AppError = require('../utils/AppError');
 const logger = require('../utils/logger');
 
@@ -30,7 +29,7 @@ class EnquiryService {
       name: data.name,
       mobile: data.mobile,
       email: data.email || null,
-      courseInterested: data.courseInterested,
+      course: data.course,
       source: 'website',
       status: ENQUIRY_STATUSES.NEW,
       assignedTo: null,
@@ -47,7 +46,7 @@ class EnquiryService {
   }
 
   async getEnquiryById(id) {
-    const enquiry = await Enquiry.findOne({ _id: id, isDeleted: false })
+    const enquiry = await Enquiry.findById(id)
       .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email');
 
@@ -88,11 +87,6 @@ class EnquiryService {
       Enquiry.countDocuments(filter)
     ]);
 
-    // Optimize: Get admission IDs only for current page enquiries
-    const enquiryIds = enquiries.map(e => e._id);
-    const admissionIds = await Admission.distinct('enquiryId', { enquiryId: { $in: enquiryIds } });
-
-    const admissionSet = new Set(admissionIds.map(id => id.toString()));
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -100,7 +94,6 @@ class EnquiryService {
       enquiries: enquiries.map(e => ({
         ...e,
         isUnassigned: !e.assignedTo,
-        hasAdmission: admissionSet.has(e._id.toString()),
         isOverdue: e.followUpDate && new Date(e.followUpDate) < today
       })),
       pagination: {
@@ -114,172 +107,69 @@ class EnquiryService {
     };
   }
 
-  // List ALL enquiries (no access restriction for read-only)
-  async listAllEnquiries(query, user) {
-    const page = parseInt(query.page) || PAGINATION.DEFAULT_PAGE;
-    const limit = Math.min(parseInt(query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
-    const skip = (page - 1) * limit;
-
-    const filter = { isDeleted: false };
-    if (query.status) {
-      const statuses = query.status.split(',').map(s => s.trim());
-      filter.status = { $in: statuses };
-    }
-    if (query.search) {
-      filter.$or = [
-        { name: { $regex: query.search, $options: 'i' } },
-        { mobile: { $regex: query.search, $options: 'i' } },
-        { email: { $regex: query.search, $options: 'i' } },
-        { courseInterested: { $regex: query.search, $options: 'i' } }
-      ];
-    }
-
-    // Date range filters (createdAt)
-    if (query.dateFrom || query.dateTo) {
-      filter.createdAt = {};
-      if (query.dateFrom) {
-        const dateFrom = new Date(query.dateFrom);
-        dateFrom.setHours(0, 0, 0, 0);
-        filter.createdAt.$gte = dateFrom;
-      }
-      if (query.dateTo) {
-        const dateTo = new Date(query.dateTo);
-        dateTo.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = dateTo;
-      }
-    }
-
-    const [enquiries, totalCount] = await Promise.all([
-      Enquiry.find(filter)
-        .populate('assignedTo', 'name email')
-        .populate('createdBy', 'name email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Enquiry.countDocuments(filter)
-    ]);
-
-    // Optimize: Get admission IDs only for current page enquiries
-    const enquiryIds = enquiries.map(e => e._id);
-    const admissionIds = await Admission.distinct('enquiryId', { enquiryId: { $in: enquiryIds } });
-
-    const admissionSet = new Set(admissionIds.map(id => id.toString()));
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return {
-      enquiries: enquiries.map(e => ({
-        ...e,
-        isUnassigned: !e.assignedTo,
-        hasAdmission: admissionSet.has(e._id.toString()),
-        isOverdue: e.followUpDate && new Date(e.followUpDate) < today
-      })),
-      pagination: {
-        page,
-        limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNextPage: page < Math.ceil(totalCount / limit),
-        hasPrevPage: page > 1
-      }
-    };
-  }
-
-  // Single update API - handles status + note + followUpDate
+  // Update Enquiry - Full update with no restrictions
   async updateEnquiry(enquiryId, data, user) {
-    const { status, note, followUpDate, walkInBroughtBy } = data;
+    const { 
+      name, email, mobile, course, 
+      source, referenceName, referenceContact, walkInBroughtBy,
+      status, note, followUpDate, assignedTo 
+    } = data;
 
-    const enquiry = await Enquiry.findOne({ _id: enquiryId, isDeleted: false });
+    const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) throw new AppError('Enquiry not found', 404);
 
-    // Access control
-    if (!canModifyEnquiry(user, enquiry)) {
-      throw new AppError('Access denied. You can only modify enquiries assigned to you.', 403);
-    }
-
-    // Check if converted (locked for non-admins)
-    if (enquiry.status === ENQUIRY_STATUSES.CONVERTED && user.role !== ROLES.ADMIN) {
-      throw new AppError('Converted enquiries can only be modified by admin', 403);
-    }
-
-    // Validation rules
-    // Note is required for status changes except ADMISSION_PROCESS (system-initiated)
-    if (status && !note && status !== ENQUIRY_STATUSES.ADMISSION_PROCESS) {
-      throw new AppError('Note is required when updating status', 400);
-    }
-
-    // Allow reverting from ADMISSION_PROCESS to previous statuses (cancel option)
-    const canRevertFromAdmissionProcess = [
-      ENQUIRY_STATUSES.INTERESTED,
-      ENQUIRY_STATUSES.FOLLOW_UP,
-      ENQUIRY_STATUSES.NO_RESPONSE,
-      ENQUIRY_STATUSES.CONTACTED
-    ].includes(status);
-
-    if (enquiry.status === ENQUIRY_STATUSES.ADMISSION_PROCESS && status && !canRevertFromAdmissionProcess) {
-      throw new AppError('Can only revert ADMISSION_PROCESS to INTERESTED, FOLLOW_UP, NO_RESPONSE, or CONTACTED', 400);
-    }
-
+    // Follow-up date is required when status is FOLLOW_UP
     if (status === ENQUIRY_STATUSES.FOLLOW_UP && !followUpDate) {
       throw new AppError('Follow-up date is required when status is FOLLOW_UP', 400);
     }
 
-    // Store original values before any modifications
-    const previousStatus = enquiry.status;
-    const previousAssignedTo = enquiry.assignedTo;
-    const previousFollowUpDate = enquiry.followUpDate;
+    // Build update data
+    const updateData = {
+      updatedAt: new Date(),
+      updatedBy: user.id
+    };
 
-    // Auto-assign on first counselor action
-    let autoAssigned = false;
-    if (!enquiry.assignedTo && user.role === ROLES.COUNSELOR) {
-      enquiry.assignedTo = user.id;
-      autoAssigned = true;
-    }
+    // Update student info
+    if (name !== undefined) updateData.name = name.trim();
+    if (email !== undefined) updateData.email = email ? email.trim().toLowerCase() : null;
+    if (mobile !== undefined) updateData.mobile = mobile;
+    if (course !== undefined) updateData.course = course.trim();
 
-    let requiresPaymentSetup = false;
+    // Update source info
+    if (source !== undefined) updateData.source = source;
+    if (referenceName !== undefined) updateData.referenceName = referenceName ? referenceName.trim() : null;
+    if (referenceContact !== undefined) updateData.referenceContact = referenceContact ? referenceContact.trim() : null;
+    if (walkInBroughtBy !== undefined) updateData.walkInBroughtBy = walkInBroughtBy ? walkInBroughtBy.trim() : null;
 
-    // Build update operations
-    const updateOps = { $set: { updatedAt: new Date() } };
+    // Update status & assignment
+    if (status !== undefined) updateData.status = status;
+    if (followUpDate !== undefined) updateData.followUpDate = followUpDate;
+    if (assignedTo !== undefined) updateData.assignedTo = assignedTo;
 
-    // Add assignedTo to update if auto-assigned
-    if (autoAssigned) {
-      updateOps.$set.assignedTo = user.id;
-    }
-
-    // Update status - add to statusHistory
-    // Allow multiple FOLLOW_UP and NO_RESPONSE entries (for recurring follow-ups/no responses), but skip duplicate for other statuses
-    const isSameStatus = status === enquiry.status;
-    const allowDuplicate = status === ENQUIRY_STATUSES.FOLLOW_UP || status === ENQUIRY_STATUSES.NO_RESPONSE; // Allow multiple FOLLOW_UP and NO_RESPONSE
-
-    if (status && (!isSameStatus || allowDuplicate)) {
-      updateOps.$set.status = status;
-      updateOps.$push = updateOps.$push || {};
-      updateOps.$push.statusHistory = {
-        status: status,
-        note: note || `Follow-up scheduled for ${followUpDate || new Date().toISOString().split('T')[0]}`,
-        changedBy: user.id,
-        changedAt: new Date()
-      };
-
-      if (status === ENQUIRY_STATUSES.CONVERTED) {
-        requiresPaymentSetup = true;
-      }
-    }
-
-    // Update followUpDate
-    if (followUpDate !== undefined) {
-      updateOps.$set.followUpDate = followUpDate;
+    // Add status history entry if status changed
+    let statusChanged = false;
+    if (status && status !== enquiry.status) {
+      statusChanged = true;
     }
 
     // Apply updates
-    await Enquiry.findByIdAndUpdate(enquiryId, updateOps);
+    await Enquiry.findByIdAndUpdate(enquiryId, { $set: updateData });
 
-    return {
-      enquiry: await this.getEnquiryById(enquiryId),
-      autoAssigned,
-      requiresPaymentSetup
-    };
+    // Add status history entry
+    if (statusChanged || note) {
+      await Enquiry.findByIdAndUpdate(enquiryId, {
+        $push: {
+          statusHistory: {
+            status: status || enquiry.status,
+            note: note || 'Enquiry updated',
+            changedBy: user.id,
+            changedAt: new Date()
+          }
+        }
+      });
+    }
+
+    return await this.getEnquiryById(enquiryId);
   }
 
   async bulkUpload(dataArray, user) {
@@ -309,7 +199,7 @@ class EnquiryService {
         // Normalize fields (case-insensitive)
         const name = getField(data, 'name');
         const mobileRaw = getField(data, 'mobile');
-        const course = getField(data, 'course', 'courseinterested', 'courseInterested');
+        const course = getField(data, 'course', 'courseinterested', 'course');
         const emailRaw = getField(data, 'email');
         const status = getField(data, 'status');
 
@@ -355,7 +245,7 @@ class EnquiryService {
           name: name.trim(),
           mobile,
           email,
-          courseInterested: course.trim(),
+          course: course.trim(),
           status: status || ENQUIRY_STATUSES.NEW,
           assignedTo: assignedTo,
           createdBy: user.id,
@@ -389,7 +279,7 @@ class EnquiryService {
       throw new AppError('Only admins can assign enquiries to counselors', 403);
     }
 
-    const enquiry = await Enquiry.findOne({ _id: enquiryId, isDeleted: false });
+    const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) {
       throw new AppError('Enquiry not found', 404);
     }
@@ -423,108 +313,9 @@ class EnquiryService {
     return await this.getEnquiryById(enquiryId);
   }
 
-  async updateEnquiryDetails(enquiryId, data, user) {
-    const { name, email, mobile, courseInterested, source, referenceName, referenceContact, walkInBroughtBy } = data;
-
-    const enquiry = await Enquiry.findOne({ _id: enquiryId, isDeleted: false });
-    if (!enquiry) throw new AppError('Enquiry not found', 404);
-
-    // Access control
-    if (!canModifyEnquiry(user, enquiry)) {
-      throw new AppError('Access denied. You can only modify enquiries assigned to you.', 403);
-    }
-
-    // Check if converted (locked for non-admins)
-    if (enquiry.status === ENQUIRY_STATUSES.CONVERTED && user.role !== ROLES.ADMIN) {
-      throw new AppError('Converted enquiries can only be modified by admin', 403);
-    }
-
-    // Check if mobile number already exists for another enquiry
-    if (mobile !== enquiry.mobile) {
-      const existingEnquiry = await Enquiry.findOne({ 
-        mobile, 
-        isDeleted: false, 
-        _id: { $ne: enquiryId } 
-      });
-      if (existingEnquiry) {
-        throw new AppError('Mobile number already exists for another enquiry', 400);
-      }
-    }
-
-    // Build update data
-    const updateData = {
-      name: name.trim(),
-      email: email ? email.trim().toLowerCase() : null,
-      mobile,
-      courseInterested: courseInterested.trim(),
-      updatedAt: new Date()
-    };
-
-    // Add optional fields if provided
-    if (source !== undefined) updateData.source = source;
-    if (referenceName !== undefined) updateData.referenceName = referenceName ? referenceName.trim() : null;
-    if (referenceContact !== undefined) updateData.referenceContact = referenceContact ? referenceContact.trim() : null;
-    if (walkInBroughtBy !== undefined) updateData.walkInBroughtBy = walkInBroughtBy ? walkInBroughtBy.trim() : null;
-
-    // Update enquiry
-    await Enquiry.findByIdAndUpdate(enquiryId, updateData);
-
-    // Add status history entry for details update
-    await Enquiry.findByIdAndUpdate(enquiryId, {
-      $push: {
-        statusHistory: {
-          status: enquiry.status,
-          note: 'Enquiry details updated',
-          changedBy: user.id,
-          changedAt: new Date()
-        }
-      }
-    });
-
-    return await this.getEnquiryById(enquiryId);
-  }
-
-  async deleteEnquiry(id, user) {
-    // Only admins can delete records
-    if (user.role !== ROLES.ADMIN) {
-      throw new AppError('Only admins are authorized to delete records', 403);
-    }
-
-    const enquiry = await Enquiry.findById(id);
-    if (!enquiry) {
-      throw new AppError('Enquiry not found', 404);
-    }
-
-    // Check if admission exists for this enquiry
-    const admission = await Admission.findOne({ enquiryId: id, isDeleted: false });
-    if (admission) {
-      throw new AppError('Cannot delete enquiry with associated admission', 400);
-    }
-
-    // Soft delete - mark as deleted instead of hard delete
-    await Enquiry.findByIdAndUpdate(id, {
-      isDeleted: true,
-      deletedAt: new Date(),
-      deletedBy: user.id
-    });
-
-    return { message: 'Enquiry deleted successfully' };
-  }
-
-  // Build filter with proper access control
+  // Build filter
   _buildFilter(query, user) {
-    const filter = { isDeleted: false };
-
-    // Access control: counselors can only see assigned + unassigned
-    if (user.role === ROLES.COUNSELOR) {
-      filter.$and = filter.$and || [];
-      filter.$and.push({
-        $or: [
-          { assignedTo: null },
-          { assignedTo: user.id }
-        ]
-      });
-    }
+    const filter = {};
 
     if (query.status) {
       const statuses = query.status.split(',').map(s => s.trim());
@@ -537,7 +328,7 @@ class EnquiryService {
           { name: { $regex: query.search, $options: 'i' } },
           { mobile: { $regex: query.search, $options: 'i' } },
           { email: { $regex: query.search, $options: 'i' } },
-          { courseInterested: { $regex: query.search, $options: 'i' } }
+          { course: { $regex: query.search, $options: 'i' } }
         ]
       };
       filter.$and = filter.$and || [];

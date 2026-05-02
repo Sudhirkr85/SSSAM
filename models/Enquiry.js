@@ -48,9 +48,9 @@ const enquirySchema = new mongoose.Schema({
       'Please provide a valid 10-digit mobile number'
     ]
   },
-  courseInterested: {
+  course: {
     type: String,
-    required: [true, 'Course interested is required'],
+    required: [true, 'Course is required'],
     trim: true,
     maxlength: [100, 'Course cannot exceed 100 characters']
   },
@@ -115,19 +115,6 @@ const enquirySchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
-  isDeleted: {
-    type: Boolean,
-    default: false
-  },
-  deletedAt: {
-    type: Date,
-    default: null
-  },
-  deletedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  }
 });
 
 enquirySchema.pre('save', function (next) {

@@ -23,12 +23,12 @@ const createEnquiryValidation = [
     .matches(/^[0-9]{10}$/)
     .withMessage('Please provide a valid 10-digit mobile number'),
 
-  body('courseInterested')
+  body('course')
     .trim()
     .notEmpty()
-    .withMessage('Course interested is required')
+    .withMessage('Course is required')
     .isLength({ max: 100 })
-    .withMessage('Course interested cannot exceed 100 characters'),
+    .withMessage('Course cannot exceed 100 characters'),
 
   body('source')
     .optional()
@@ -201,12 +201,12 @@ const publicEnquiryValidation = [
     .matches(/^[0-9]{10}$/)
     .withMessage('Please provide a valid 10-digit mobile number'),
 
-  body('courseInterested')
+  body('course')
     .trim()
     .notEmpty()
-    .withMessage('Course interested is required')
+    .withMessage('Course is required')
     .isLength({ max: 100 })
-    .withMessage('Course interested cannot exceed 100 characters'),
+    .withMessage('Course cannot exceed 100 characters'),
 
   body('email')
     .optional()
@@ -253,12 +253,12 @@ const updateEnquiryDetailsValidation = [
     .matches(/^[0-9]{10}$/)
     .withMessage('Please provide a valid 10-digit mobile number'),
 
-  body('courseInterested')
+  body('course')
     .trim()
     .notEmpty()
-    .withMessage('Course interested is required')
+    .withMessage('Course is required')
     .isLength({ max: 100 })
-    .withMessage('Course interested cannot exceed 100 characters'),
+    .withMessage('Course cannot exceed 100 characters'),
 
   body('source')
     .optional()
