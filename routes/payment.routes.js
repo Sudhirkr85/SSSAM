@@ -5,59 +5,20 @@ const { paymentController } = require('../controllers');
 const {
   authMiddleware,
   roleMiddleware,
-  paymentAccessMiddleware,
   validateRequest
 } = require('../middleware');
 const { ROLES } = require('../config/constants');
-const {
-  createPaymentValidation,
-  updatePaymentValidation,
-  paymentIdParamValidation,
-  paymentAdmissionIdParamValidation
-} = require('../validations');
 
 router.use(authMiddleware);
 
+// GET /payments - List all payments (global)
 router.get(
   '/',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   paymentController.listPayments
 );
 
-router.post(
-  '/',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  createPaymentValidation,
-  validateRequest,
-  paymentAccessMiddleware,
-  paymentController.createPayment
-);
-
-router.get(
-  '/admission/:admissionId',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  paymentAdmissionIdParamValidation,
-  validateRequest,
-  paymentController.getPaymentsByAdmission
-);
-
-router.get(
-  '/:id',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  paymentIdParamValidation,
-  validateRequest,
-  paymentController.getPaymentById
-);
-
-router.put(
-  '/:id',
-  roleMiddleware(ROLES.ADMIN),
-  paymentIdParamValidation,
-  updatePaymentValidation,
-  validateRequest,
-  paymentController.updatePayment
-);
-
+// POST /payments/check-overdue - Check overdue installments
 router.post(
   '/check-overdue',
   roleMiddleware(ROLES.ADMIN),

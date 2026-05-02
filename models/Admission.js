@@ -1,5 +1,27 @@
 const mongoose = require('mongoose');
-const { ADMISSION_STATUSES } = require('../config/constants');
+const { ADMISSION_STATUSES, INSTALLMENT_STATUSES } = require('../config/constants');
+
+const installmentSchema = new mongoose.Schema({
+  amount: {
+    type: Number,
+    required: [true, 'Installment amount is required'],
+    min: [1, 'Installment amount must be greater than 0']
+  },
+  dueDate: {
+    type: Date,
+    required: [true, 'Due date is required']
+  },
+  note: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Note cannot exceed 500 characters']
+  },
+  status: {
+    type: String,
+    enum: Object.values(INSTALLMENT_STATUSES),
+    default: INSTALLMENT_STATUSES.PENDING
+  }
+}, { _id: true });
 
 const admissionSchema = new mongoose.Schema({
   name: {
@@ -45,7 +67,11 @@ const admissionSchema = new mongoose.Schema({
   registrationAmount: {
     type: Number,
     required: [true, 'Registration amount is required'],
-    min: [1, 'Registration amount must be greater than 0']
+    min: [0, 'Registration amount cannot be negative']
+  },
+  installments: {
+    type: [installmentSchema],
+    default: []
   },
   status: {
     type: String,

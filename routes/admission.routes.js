@@ -5,26 +5,35 @@ const { admissionController } = require('../controllers');
 const {
   authMiddleware,
   roleMiddleware,
-  admissionAccessMiddleware,
   validateRequest
 } = require('../middleware');
 const { ROLES } = require('../config/constants');
 const {
-  updateTotalFeesValidation,
   admissionIdParamValidation,
-  admissionEnquiryIdParamValidation,
-  setPaymentPlanValidation,
-  createAdmissionFromEnquiryValidation
+  createAdmissionValidation,
+  updateAdmissionValidation,
+  recordPaymentValidation
 } = require('../validations');
 
 router.use(authMiddleware);
 
+// POST /admissions - Create admission
+router.post(
+  '/',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  createAdmissionValidation,
+  validateRequest,
+  admissionController.createAdmission
+);
+
+// GET /admissions - List admissions (sorted by upcoming installment)
 router.get(
   '/',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   admissionController.listAdmissions
 );
 
+// GET /admissions/:id - Get single admission
 router.get(
   '/:id',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
@@ -33,56 +42,33 @@ router.get(
   admissionController.getAdmission
 );
 
-router.get(
-  '/by-enquiry/:enquiryId',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  admissionEnquiryIdParamValidation,
-  validateRequest,
-  admissionController.getAdmissionByEnquiry
-);
-
+// PUT /admissions/:id - Update admission (no restrictions)
 router.put(
-  '/:id/fees',
+  '/:id',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   admissionIdParamValidation,
-  updateTotalFeesValidation,
+  updateAdmissionValidation,
   validateRequest,
-  admissionAccessMiddleware,
-  admissionController.updateTotalFees
+  admissionController.updateAdmission
 );
 
-router.put(
-  '/:id/lock',
-  roleMiddleware(ROLES.ADMIN),
-  admissionIdParamValidation,
-  validateRequest,
-  admissionController.lockAdmission
-);
-
-router.put(
-  '/:id/payment-plan',
-  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  admissionIdParamValidation,
-  setPaymentPlanValidation,
-  validateRequest,
-  admissionAccessMiddleware,
-  admissionController.setPaymentPlan
-);
-
+// POST /admissions/:id/payments - Record payment
 router.post(
-  '/from-enquiry/:enquiryId',
+  '/:id/payments',
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
-  createAdmissionFromEnquiryValidation,
+  admissionIdParamValidation,
+  recordPaymentValidation,
   validateRequest,
-  admissionController.createAdmissionFromEnquiry
+  admissionController.recordPayment
 );
 
-router.patch(
-  '/:id/cancel',
-  roleMiddleware(ROLES.ADMIN),
+// GET /admissions/:id/payments - List payments for admission
+router.get(
+  '/:id/payments',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   admissionIdParamValidation,
   validateRequest,
-  admissionController.cancelAdmission
+  admissionController.listPayments
 );
 
 module.exports = router;

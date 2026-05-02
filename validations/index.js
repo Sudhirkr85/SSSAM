@@ -5,22 +5,16 @@ const {
   listEnquiriesValidation,
   enquiryIdParamValidation,
   publicEnquiryValidation,
-  assignEnquiryValidation,
-  updateEnquiryDetailsValidation
+  assignEnquiryValidation
 } = require('./enquiry.validation');
 const {
-  createAdmissionValidation,
-  updateTotalFeesValidation,
   admissionIdParamValidation,
-  enquiryIdParamValidation: enquiryIdParamForAdmissionValidation,
-  setPaymentPlanValidation,
-  createAdmissionFromEnquiryValidation
+  createAdmissionValidation,
+  updateAdmissionValidation,
+  recordPaymentValidation
 } = require('./admission.validation');
 const {
-  createPaymentValidation,
-  updatePaymentValidation,
-  paymentIdParamValidation,
-  admissionIdParamValidation: paymentAdmissionIdParamValidation
+  paymentIdParamValidation
 } = require('./payment.validation');
 const { reportRangeValidation } = require('./report.validation');
 
@@ -34,16 +28,10 @@ module.exports = {
   enquiryIdParamValidation,
   publicEnquiryValidation,
   assignEnquiryValidation,
-  updateEnquiryDetailsValidation,
-  createAdmissionValidation,
-  updateTotalFeesValidation,
   admissionIdParamValidation,
-  admissionEnquiryIdParamValidation: enquiryIdParamForAdmissionValidation,
-  setPaymentPlanValidation,
-  createAdmissionFromEnquiryValidation,
-  createPaymentValidation,
-  updatePaymentValidation,
+  createAdmissionValidation,
+  updateAdmissionValidation,
+  recordPaymentValidation,
   paymentIdParamValidation,
-  paymentAdmissionIdParamValidation,
   reportRangeValidation
 };

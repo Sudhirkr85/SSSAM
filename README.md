@@ -19,9 +19,10 @@ A production-ready CRM backend for managing institute enquiries, admissions, and
 ```javascript
 {
   name, email, mobile, course, admissionDate,
-  totalFees, registrationAmount, status,
-  createdBy, updatedBy, createdAt, updatedAt,
-  counselorId, isDefaulted, writeOffAmount
+  totalFees, registrationAmount,
+  installments: [{ amount, dueDate, note, status }],
+  status, counselorId, isDefaulted, writeOffAmount,
+  createdBy, updatedBy, createdAt, updatedAt
 }
 ```
 
@@ -54,9 +55,9 @@ A production-ready CRM backend for managing institute enquiries, admissions, and
 - **Role-based access control**: Admin (full access) & Counselor (restricted access)
 - **No Ownership Restrictions**: Anyone can access/update any enquiry
 - **Auto-assignment logic**: First action auto-assigns unassigned enquiries
-- **Single Update API**: All fields in one PUT request
+- **Single Update API**: All fields in one PUT request (Enquiry & Admission)
 - **Follow-up Management**: Today and overdue follow-up tracking
-- **Admission & Payment Tracking**: Full financial management
+- **Admission & Payment Tracking**: Full financial management with installments
 - **Dashboard APIs**: Revenue, enquiries, and follow-up statistics
 - **Search, filter, and pagination**
 
@@ -145,17 +146,48 @@ npm start
 | GET | `/api/dashboard/followups` | Admin, Counselor | Follow-up statistics |
 | GET | `/api/dashboard/counselor` | Counselor | Counselor-specific dashboard |
 
-### Admissions & Payments
+### Admissions (Independent - No Enquiry Link)
 
 | Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
 | POST | `/api/admissions` | Admin, Counselor | Create admission |
-| GET | `/api/admissions` | Admin | List all admissions |
-| GET | `/api/admissions/:id` | Admin, Counselor | Get admission |
-| PUT | `/api/admissions/:id/fees` | Admin | Update total fees |
-| POST | `/api/admissions/:id/payment-plan` | Admin, Counselor | Set payment plan |
-| POST | `/api/payments` | Admin, Counselor | Record payment |
-| GET | `/api/payments/admission/:admissionId` | Admin, Counselor | Get payments by admission |
+| GET | `/api/admissions` | Admin, Counselor | List admissions (sorted by upcoming installment) |
+| GET | `/api/admissions/:id` | Admin, Counselor | Get single admission |
+| PUT | `/api/admissions/:id` | Admin, Counselor | **Full Update** - Any field, anytime, no restrictions |
+| POST | `/api/admissions/:id/payments` | Admin, Counselor | Record payment |
+| GET | `/api/admissions/:id/payments` | Admin, Counselor | List payments for admission |
+
+**Full Update API (PUT /api/admissions/:id)**:
+```json
+{
+  "name": "Ram Kumar",
+  "email": "ram@example.com",
+  "mobile": "9876543210",
+  "course": "Full Stack Development",
+  "totalFees": 50000,
+  "registrationAmount": 5000,
+  "installments": [
+    { "amount": 15000, "dueDate": "2026-05-15", "note": "First installment" },
+    { "amount": 15000, "dueDate": "2026-06-15", "note": "Second installment" },
+    { "amount": 15000, "dueDate": "2026-07-15", "note": "Third installment" }
+  ],
+  "status": "active"
+}
+```
+**Rules**:
+- **No restrictions** - Any field can be updated anytime by anyone
+- Installments can be added/modified/removed
+- History automatically saved with `updatedBy` user info
+
+### Payments (Simplified)
+
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| GET | `/api/payments` | Admin, Counselor | List all payments (global) |
+| POST | `/api/payments/check-overdue` | Admin | Check overdue installments |
+
+**Installment Status Enum**:
+- `PENDING`, `PAID`, `OVERDUE`
 
 ### Reports
 
@@ -211,8 +243,11 @@ npm start
    - No link to Enquiry model
    - Can be edited **anytime** by anyone (no locks)
    - Same student can have multiple admissions for different courses
+   - **Installments array** for payment tracking
+   - **Upcoming installment sorting** for better management
 
 6. **Payment** (Simplified):
    - Simple payment record with amount, mode, date, note
    - No payment types, statuses, refund tracking
    - Notes can describe payment type ("initial", "full", "refund")
+   - **Overdue installment checking** available
