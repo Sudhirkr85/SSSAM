@@ -93,12 +93,24 @@ const updateEnquiryValidation = [
     .withMessage('Please provide a valid date')
     .toDate(),
 
-  // Custom validation: if status is CONTACTED, followUpDate is required
+  // Custom validation: follow-up date rules based on status
   body()
     .custom((value, { req }) => {
-      if (req.body.status === ENQUIRY_STATUSES.CONTACTED && !req.body.followUpDate) {
+      const { status, followUpDate } = req.body;
+      
+      // Rule 1: CONTACTED → followUpDate REQUIRED
+      if (status === ENQUIRY_STATUSES.CONTACTED && !followUpDate) {
         throw new Error('Follow-up date is required when status is CONTACTED');
       }
+      
+      // Rule 2: NOT_INTERESTED → followUpDate MUST be null
+      if (status === ENQUIRY_STATUSES.NOT_INTERESTED && followUpDate !== null && followUpDate !== undefined && followUpDate !== '') {
+        throw new Error('Follow-up date must be null when status is NOT_INTERESTED');
+      }
+      
+      // Rule 3: INTERESTED → followUpDate OPTIONAL (any value allowed including null)
+      // No validation needed for INTERESTED status
+      
       return true;
     })
 ];

@@ -189,25 +189,24 @@ class EnquiryService {
     if (followUpDate !== undefined) updateData.followUpDate = followUpDate;
     if (assignedTo !== undefined) updateData.assignedTo = assignedTo;
 
-    // Add status history entry if status changed
-    let statusChanged = false;
-    if (status && status !== enquiry.status) {
-      statusChanged = true;
-    }
+    // Check if status changed for history tracking
+    const statusChanged = status !== undefined && status !== enquiry.status;
 
     // Apply updates
     await Enquiry.findByIdAndUpdate(enquiryId, { $set: updateData });
 
-    // Add status history entry (IMPORTANT: Always add entry when status changes)
+    // Add status history entry (IMPORTANT: Always add entry when status changes or note provided)
     if (statusChanged || note) {
+      const historyEntry = {
+        status: status || enquiry.status,
+        note: note || (statusChanged ? `Status changed from ${enquiry.status} to ${status}` : 'Enquiry updated'),
+        changedBy: user.id,
+        changedAt: new Date()
+      };
+
       await Enquiry.findByIdAndUpdate(enquiryId, {
         $push: {
-          statusHistory: {
-            status: status || enquiry.status,
-            note: note || (statusChanged ? 'Status updated' : 'Enquiry updated'),
-            changedBy: user.id,
-            changedAt: new Date()
-          }
+          statusHistory: historyEntry
         }
       });
     }
@@ -369,23 +368,23 @@ class EnquiryService {
         });
         
       case 'pending_followups':
-        // Show if ANY: followUpDate < today (missed), followUpDate is null (includes new enquiries), created today AND no action taken
-        // EXCLUDE: NOT_INTERESTED enquiries
+        // Include if: followUpDate < today, followUpDate is null, created today AND no action
+        // Exclude: status = NOT_INTERESTED
         return enquiries.filter(enquiry => {
           // Exclude NOT_INTERESTED enquiries
           if (enquiry.status === ENQUIRY_STATUSES.NOT_INTERESTED) return false;
           
-          // A. Missed Follow-ups
+          // Include if followUpDate < today (overdue)
           if (enquiry.followUpDate) {
             const followUpDate = new Date(enquiry.followUpDate);
             followUpDate.setHours(0, 0, 0, 0);
             if (followUpDate < today) return true;
           }
           
-          // B. No Follow-up Set (includes new enquiries with null status)
+          // Include if followUpDate is null
           if (!enquiry.followUpDate) return true;
           
-          // C. Created today AND no action taken
+          // Include if created today AND no action taken
           if (enquiry.createdAt) {
             const createdDate = new Date(enquiry.createdAt);
             if (createdDate.toDateString() === today.toDateString()) {

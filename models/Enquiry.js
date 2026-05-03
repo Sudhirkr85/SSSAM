@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { STATUS_LIST, ENQUIRY_SOURCES } = require('../config/constants');
+const { STATUS_LIST, ENQUIRY_SOURCES, ENQUIRY_STATUSES } = require('../config/constants');
 
 const statusHistorySchema = new mongoose.Schema({
   status: {
@@ -92,12 +92,29 @@ const enquirySchema = new mongoose.Schema({
     default: null,
     validate: {
       validator: function(value) {
-        // Allow null for NOT_INTERESTED status
-        if (value === null) return true;
-        // Allow any date (past, today, future)
+        // Rule 1: NOT_INTERESTED → followUpDate MUST be null
+        if (this.status === ENQUIRY_STATUSES.NOT_INTERESTED) {
+          return value === null;
+        }
+        
+        // Rule 2: CONTACTED → followUpDate REQUIRED
+        if (this.status === ENQUIRY_STATUSES.CONTACTED) {
+          return value !== null;
+        }
+        
+        // Rule 3: INTERESTED → followUpDate OPTIONAL (any value allowed)
+        // Rule 4: null status → followUpDate OPTIONAL (any value allowed)
         return true;
       },
-      message: 'Invalid follow-up date'
+      message: function(props) {
+        if (this.status === ENQUIRY_STATUSES.NOT_INTERESTED) {
+          return 'Follow-up date must be null when status is NOT_INTERESTED';
+        }
+        if (this.status === ENQUIRY_STATUSES.CONTACTED) {
+          return 'Follow-up date is required when status is CONTACTED';
+        }
+        return 'Invalid follow-up date';
+      }
     }
   },
   statusHistory: {
