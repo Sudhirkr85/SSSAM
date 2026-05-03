@@ -268,6 +268,14 @@ class EnquiryService {
           continue;
         }
 
+        // Check for duplicate mobile number
+        const existingEnquiry = await Enquiry.findOne({ mobile });
+        if (existingEnquiry) {
+          logger.warn('Row skipped - duplicate mobile number', { row: i + 1, mobile });
+          errors.push({ row: i + 1, error: `Duplicate mobile number: ${mobile} already exists` });
+          continue;
+        }
+
         // Clean email - extract from markdown links like [email](mailto:email) and remove empty strings
         let email = null;
         if (emailRaw) {
@@ -360,11 +368,38 @@ class EnquiryService {
         // Show all enquiries (latest first) - no filtering needed
         return enquiries;
         
+      case 'new':
+        // Show enquiries created today (any status)
+        return enquiries.filter(enquiry => {
+          if (!enquiry.createdAt) return false;
+          
+          // Convert both dates to UTC to avoid timezone issues
+          const createdDate = new Date(enquiry.createdAt);
+          const todayUTC = new Date();
+          todayUTC.setUTCHours(0, 0, 0, 0);
+          
+          // Check if created date is today (in UTC)
+          const createdUTC = new Date(createdDate);
+          createdUTC.setUTCHours(0, 0, 0, 0);
+          
+          return createdUTC.getTime() === todayUTC.getTime();
+        });
+        
       case 'today_followups':
         // followUpDate == today, status does NOT matter
         return enquiries.filter(enquiry => {
-          return enquiry.followUpDate && 
-                 new Date(enquiry.followUpDate).toISOString().split('T')[0] === todayString;
+          if (!enquiry.followUpDate) return false;
+          
+          // Convert both dates to UTC to avoid timezone issues
+          const followUpDate = new Date(enquiry.followUpDate);
+          const todayUTC = new Date();
+          todayUTC.setUTCHours(0, 0, 0, 0);
+          
+          // Check if follow-up date is today (in UTC)
+          const followUpUTC = new Date(followUpDate);
+          followUpUTC.setUTCHours(0, 0, 0, 0);
+          
+          return followUpUTC.getTime() === todayUTC.getTime();
         });
         
       case 'pending_followups':
