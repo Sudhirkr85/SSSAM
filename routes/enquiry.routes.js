@@ -17,9 +17,9 @@ const {
   assignEnquiryValidation
 } = require('../validations');
 
-// POST /public/enquiries - Public endpoint for website submissions (no auth required)
+// POST /public - Public endpoint for website submissions (no auth required)
 router.post(
-  '/public/enquiries',
+  '/public',
   publicEnquiryValidation,
   validateRequest,
   enquiryController.createPublicEnquiry

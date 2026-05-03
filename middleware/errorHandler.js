@@ -26,6 +26,13 @@ const errorHandler = (err, req, res, next) => {
   }
 
   if (err.isOperational) {
+    // Handle duplicate mobile error with existing enquiry data
+    if (err.statusCode === 409 && err.duplicate && err.existingEnquiry) {
+      return errorResponse(res, err.message, err.statusCode, {
+        duplicate: true,
+        existingEnquiry: err.existingEnquiry
+      });
+    }
     return errorResponse(res, err.message, err.statusCode);
   }
 

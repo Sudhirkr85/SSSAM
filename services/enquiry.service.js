@@ -5,6 +5,26 @@ const logger = require('../utils/logger');
 
 class EnquiryService {
   async createEnquiry(data, user) {
+    // Check for duplicate mobile number
+    const existingEnquiry = await Enquiry.findOne({ mobile: data.mobile })
+      .populate('assignedTo', 'name email')
+      .populate('createdBy', 'name email');
+
+    if (existingEnquiry) {
+      // Convert to object and add computed fields
+      const existingObj = existingEnquiry.toObject();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      existingObj.isUnassigned = !existingObj.assignedTo;
+      existingObj.isOverdue = existingObj.followUpDate && new Date(existingObj.followUpDate) < today;
+      delete existingObj.id;
+
+      throw new AppError('Duplicate mobile number found', 409, {
+        duplicate: true,
+        existingEnquiry: existingObj
+      });
+    }
+
     const isAdmin = user.role === ROLES.ADMIN;
 
     const enquiry = await Enquiry.create({
@@ -23,6 +43,26 @@ class EnquiryService {
   }
 
   async createPublicEnquiry(data) {
+    // Check for duplicate mobile number
+    const existingEnquiry = await Enquiry.findOne({ mobile: data.mobile })
+      .populate('assignedTo', 'name email')
+      .populate('createdBy', 'name email');
+
+    if (existingEnquiry) {
+      // Convert to object and add computed fields
+      const existingObj = existingEnquiry.toObject();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      existingObj.isUnassigned = !existingObj.assignedTo;
+      existingObj.isOverdue = existingObj.followUpDate && new Date(existingObj.followUpDate) < today;
+      delete existingObj.id;
+
+      throw new AppError('Duplicate mobile number found', 409, {
+        duplicate: true,
+        existingEnquiry: existingObj
+      });
+    }
+
     // Create a system user for public enquiries (optional, or use a default counselor)
     // For now, we'll set createdBy to null or a default system user
     const enquiry = await Enquiry.create({
