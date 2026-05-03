@@ -370,7 +370,11 @@ class EnquiryService {
         
       case 'pending_followups':
         // Show if ANY: followUpDate < today (missed), followUpDate is null (includes new enquiries), created today AND no action taken
+        // EXCLUDE: NOT_INTERESTED enquiries
         return enquiries.filter(enquiry => {
+          // Exclude NOT_INTERESTED enquiries
+          if (enquiry.status === ENQUIRY_STATUSES.NOT_INTERESTED) return false;
+          
           // A. Missed Follow-ups
           if (enquiry.followUpDate) {
             const followUpDate = new Date(enquiry.followUpDate);
