@@ -80,7 +80,7 @@ const enquirySchema = new mongoose.Schema({
   status: {
     type: String,
     enum: STATUS_LIST,
-    default: 'NEW'
+    default: null
   },
   assignedTo: {
     type: mongoose.Schema.Types.ObjectId,
@@ -92,10 +92,12 @@ const enquirySchema = new mongoose.Schema({
     default: null,
     validate: {
       validator: function(value) {
+        // Allow null for NOT_INTERESTED status
         if (value === null) return true;
-        return value >= new Date();
+        // Allow any date (past, today, future)
+        return true;
       },
-      message: 'Follow-up date must be in the future'
+      message: 'Invalid follow-up date'
     }
   },
   statusHistory: {

@@ -63,7 +63,7 @@ const createEnquiryValidation = [
   body('status')
     .optional()
     .isIn(STATUS_LIST)
-    .withMessage(`Status must be one of: ${STATUS_LIST.join(', ')}`),
+    .withMessage(`Status must be one of: ${STATUS_LIST.filter(s => s !== null).join(', ')}, or null`),
 
   body('followUpDate')
     .optional()
@@ -76,7 +76,7 @@ const updateEnquiryValidation = [
   body('status')
     .optional()
     .isIn(STATUS_LIST)
-    .withMessage(`Status must be one of: ${STATUS_LIST.join(', ')}`),
+    .withMessage(`Status must be one of: ${STATUS_LIST.filter(s => s !== null).join(', ')}, or null`),
   
   body('note')
     .optional()
@@ -93,11 +93,11 @@ const updateEnquiryValidation = [
     .withMessage('Please provide a valid date')
     .toDate(),
 
-  // Custom validation: if status is FOLLOW_UP, followUpDate is required
+  // Custom validation: if status is CONTACTED, followUpDate is required
   body()
     .custom((value, { req }) => {
-      if (req.body.status === ENQUIRY_STATUSES.FOLLOW_UP && !req.body.followUpDate) {
-        throw new Error('Follow-up date is required when status is FOLLOW_UP');
+      if (req.body.status === ENQUIRY_STATUSES.CONTACTED && !req.body.followUpDate) {
+        throw new Error('Follow-up date is required when status is CONTACTED');
       }
       return true;
     })
@@ -123,7 +123,7 @@ const listEnquiriesValidation = [
       const statuses = value.split(',').map(s => s.trim());
       const invalidStatuses = statuses.filter(s => !STATUS_LIST.includes(s));
       if (invalidStatuses.length > 0) {
-        throw new Error(`Invalid status(es): ${invalidStatuses.join(', ')}. Must be one of: ${STATUS_LIST.join(', ')}`);
+        throw new Error(`Invalid status(es): ${invalidStatuses.join(', ')}. Must be one of: ${STATUS_LIST.filter(s => s !== null).join(', ')}, or null`);
       }
       return true;
     }),
@@ -177,7 +177,12 @@ const listEnquiriesValidation = [
     .optional()
     .isISO8601()
     .withMessage('dateTo must be a valid date in ISO format (YYYY-MM-DD)')
-    .toDate()
+    .toDate(),
+
+  query('filterType')
+    .optional()
+    .isIn(['all', 'today_followups', 'pending_followups', 'contacted', 'not_interested'])
+    .withMessage('filterType must be one of: all, today_followups, pending_followups, contacted, not_interested')
 ];
 
 const enquiryIdParamValidation = [

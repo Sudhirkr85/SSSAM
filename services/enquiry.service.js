@@ -31,12 +31,7 @@ class EnquiryService {
       ...data,
       createdBy: user.id,
       assignedTo: data.assignedTo || (isAdmin ? null : user.id),
-      statusHistory: [{
-        status: data.status || 'NEW',
-        note: 'Enquiry created',
-        changedBy: user.id,
-        changedAt: new Date()
-      }]
+      // Do not set default status or status history for new enquiries
     });
 
     return await this.getEnquiryById(enquiry._id);
@@ -71,15 +66,9 @@ class EnquiryService {
       email: data.email || null,
       course: data.course,
       source: 'website',
-      status: ENQUIRY_STATUSES.NEW,
+      // Do not set default status or status history for new enquiries
       assignedTo: null,
-      createdBy: null,
-      statusHistory: [{
-        status: ENQUIRY_STATUSES.NEW,
-        note: 'Enquiry created via website',
-        changedBy: null,
-        changedAt: new Date()
-      }]
+      createdBy: null
     });
 
     return await this.getEnquiryById(enquiry._id);
@@ -113,25 +102,31 @@ class EnquiryService {
     const page = parseInt(query.page) || PAGINATION.DEFAULT_PAGE;
     const limit = Math.min(parseInt(query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
     const skip = (page - 1) * limit;
+    const { filterType } = query;
 
     const filter = this._buildFilter(query, user);
 
-    const [enquiries, totalCount] = await Promise.all([
-      Enquiry.find(filter)
-        .populate('assignedTo', 'name email')
-        .populate('createdBy', 'name email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Enquiry.countDocuments(filter)
-    ]);
+    // Get base enquiries
+    let enquiries = await Enquiry.find(filter)
+      .populate('assignedTo', 'name email')
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Apply special filter if specified
+    if (filterType) {
+      enquiries = this._applySpecialFilter(enquiries, filterType);
+    }
+
+    // Apply pagination after filtering
+    const totalCount = filterType ? enquiries.length : await Enquiry.countDocuments(filter);
+    const paginatedEnquiries = enquiries.slice(skip, skip + limit);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     return {
-      enquiries: enquiries.map(e => ({
+      enquiries: paginatedEnquiries.map(e => ({
         ...e,
         isUnassigned: !e.assignedTo,
         isOverdue: e.followUpDate && new Date(e.followUpDate) < today
@@ -158,9 +153,17 @@ class EnquiryService {
     const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) throw new AppError('Enquiry not found', 404);
 
-    // Follow-up date is required when status is FOLLOW_UP
-    if (status === ENQUIRY_STATUSES.FOLLOW_UP && !followUpDate) {
-      throw new AppError('Follow-up date is required when status is FOLLOW_UP', 400);
+    // Apply new status update logic
+    if (status !== undefined) {
+      // Rule 1: If NOT_INTERESTED → set followUpDate = null
+      if (status === ENQUIRY_STATUSES.NOT_INTERESTED) {
+        followUpDate = null;
+      }
+      
+      // Rule 2: If CONTACTED and no follow-up → throw error
+      if (status === ENQUIRY_STATUSES.CONTACTED && !followUpDate) {
+        throw new AppError('Follow-up date is required when status is CONTACTED', 400);
+      }
     }
 
     // Build update data
@@ -195,13 +198,13 @@ class EnquiryService {
     // Apply updates
     await Enquiry.findByIdAndUpdate(enquiryId, { $set: updateData });
 
-    // Add status history entry
+    // Add status history entry (IMPORTANT: Always add entry when status changes)
     if (statusChanged || note) {
       await Enquiry.findByIdAndUpdate(enquiryId, {
         $push: {
           statusHistory: {
             status: status || enquiry.status,
-            note: note || 'Enquiry updated',
+            note: note || (statusChanged ? 'Status updated' : 'Enquiry updated'),
             changedBy: user.id,
             changedAt: new Date()
           }
@@ -286,15 +289,9 @@ class EnquiryService {
           mobile,
           email,
           course: course.trim(),
-          status: status || ENQUIRY_STATUSES.NEW,
+          // Do not set default status or status history for new enquiries
           assignedTo: assignedTo,
-          createdBy: user.id,
-          statusHistory: [{
-            status: status || ENQUIRY_STATUSES.NEW,
-            note: 'Enquiry created via bulk upload',
-            changedBy: user.id,
-            changedAt: new Date()
-          }]
+          createdBy: user.id
         });
         logger.debug('Enquiry created', { row: i + 1, enquiryId: enquiry._id.toString() });
 
@@ -353,6 +350,70 @@ class EnquiryService {
     return await this.getEnquiryById(enquiryId);
   }
 
+  // Apply special filter logic
+  _applySpecialFilter(enquiries, filterType) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    switch(filterType) {
+      case 'all':
+        // Show all enquiries (latest first) - no filtering needed
+        return enquiries;
+        
+      case 'today_followups':
+        // followUpDate == today, status does NOT matter
+        return enquiries.filter(enquiry => {
+          return enquiry.followUpDate && 
+                 new Date(enquiry.followUpDate).toISOString().split('T')[0] === todayString;
+        });
+        
+      case 'pending_followups':
+        // Show if ANY: followUpDate < today (missed), followUpDate is null (includes new enquiries), created today AND no action taken
+        return enquiries.filter(enquiry => {
+          // A. Missed Follow-ups
+          if (enquiry.followUpDate) {
+            const followUpDate = new Date(enquiry.followUpDate);
+            followUpDate.setHours(0, 0, 0, 0);
+            if (followUpDate < today) return true;
+          }
+          
+          // B. No Follow-up Set (includes new enquiries with null status)
+          if (!enquiry.followUpDate) return true;
+          
+          // C. Created today AND no action taken
+          if (enquiry.createdAt) {
+            const createdDate = new Date(enquiry.createdAt);
+            if (createdDate.toDateString() === today.toDateString()) {
+              // Check if no action was taken on same day (excluding creation)
+              const hasActionToday = enquiry.statusHistory?.some(entry => {
+                const actionDate = new Date(entry.changedAt);
+                return actionDate.toDateString() === createdDate.toDateString() && 
+                       entry.note !== 'Enquiry created' && 
+                       entry.note !== 'Enquiry created via website' && 
+                       entry.note !== 'Enquiry created via bulk upload';
+              });
+              
+              if (!hasActionToday) return true;
+            }
+          }
+          
+          return false;
+        });
+        
+      case 'contacted':
+        // status = CONTACTED
+        return enquiries.filter(enquiry => enquiry.status === ENQUIRY_STATUSES.CONTACTED);
+        
+      case 'not_interested':
+        // status = NOT_INTERESTED
+        return enquiries.filter(enquiry => enquiry.status === ENQUIRY_STATUSES.NOT_INTERESTED);
+        
+      default:
+        return enquiries;
+    }
+  }
+
   // Build filter
   _buildFilter(query, user) {
     const filter = {};
@@ -378,36 +439,17 @@ class EnquiryService {
     if (query.assignedTo === 'null') filter.assignedTo = null;
     if (query.assignedTo === 'me' && user.role === ROLES.COUNSELOR) filter.assignedTo = user.id;
 
-    // Follow-up filters
+    // Follow-up filters (simplified - most filtering now handled by _applySpecialFilter)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    if (query.followUpToday === 'true' || query.followUpToday === true) {
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      filter.$and = filter.$and || [];
-      filter.$and.push({
-        $or: [
-          { status: ENQUIRY_STATUSES.NEW },
-          { 
-            followUpDate: { $gte: today, $lt: tomorrow },
-            status: { $nin: [ENQUIRY_STATUSES.CONVERTED, ENQUIRY_STATUSES.NOT_INTERESTED] }
-          }
-        ]
-      });
-    } else if (query.followUpOverdue === 'true' || query.followUpOverdue === true) {
-      filter.followUpDate = { $lt: today };
-      filter.status = { $ne: ENQUIRY_STATUSES.CONVERTED };
-    } else if (query.followUpDate) {
+    if (query.followUpDate) {
       // Filter by specific follow-up date
       const followUpDate = new Date(query.followUpDate);
       followUpDate.setHours(0, 0, 0, 0);
       const nextDay = new Date(followUpDate);
       nextDay.setDate(nextDay.getDate() + 1);
       filter.followUpDate = { $gte: followUpDate, $lt: nextDay };
-    } else if (query.view === 'default') {
-      filter.followUpDate = { $lte: today };
-      filter.status = { $ne: ENQUIRY_STATUSES.CONVERTED };
     }
 
     // Date range filters (createdAt)
