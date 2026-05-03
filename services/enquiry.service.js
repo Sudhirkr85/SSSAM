@@ -147,8 +147,9 @@ class EnquiryService {
     const { 
       name, email, mobile, course, 
       source, referenceName, referenceContact, walkInBroughtBy,
-      status, note, followUpDate, assignedTo 
+      status, note, assignedTo 
     } = data;
+    let { followUpDate } = data;
 
     const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) throw new AppError('Enquiry not found', 404);
