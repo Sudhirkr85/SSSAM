@@ -366,8 +366,8 @@ class EnquiryService {
     
     switch(filterType) {
       case 'all':
-        // Show all enquiries (latest first) - no filtering needed
-        return enquiries;
+        // Show all enquiries except NOT_INTERESTED
+        return enquiries.filter(enquiry => enquiry.status !== ENQUIRY_STATUSES.NOT_INTERESTED);
         
       case 'new':
         // Show enquiries created today (any status)
