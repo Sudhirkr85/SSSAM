@@ -9,9 +9,11 @@ const admissionIdParamValidation = [
 
 const createAdmissionValidation = [
   body('name')
+    .if(body('enquiryId').not().exists())
     .trim()
     .notEmpty()
-    .withMessage('Name is required')
+    .withMessage('Name is required when enquiryId is not provided')
+    .if(body('name').exists())
     .isLength({ max: 100 })
     .withMessage('Name cannot exceed 100 characters'),
   body('email')
@@ -21,17 +23,25 @@ const createAdmissionValidation = [
     .withMessage('Please provide a valid email address')
     .normalizeEmail(),
   body('mobile')
+    .if(body('enquiryId').not().exists())
     .trim()
     .notEmpty()
-    .withMessage('Mobile number is required')
+    .withMessage('Mobile number is required when enquiryId is not provided')
+    .if(body('mobile').exists())
     .matches(/^[0-9]{10}$/)
     .withMessage('Please provide a valid 10-digit mobile number'),
   body('course')
+    .if(body('enquiryId').not().exists())
     .trim()
     .notEmpty()
-    .withMessage('Course is required')
+    .withMessage('Course is required when enquiryId is not provided')
+    .if(body('course').exists())
     .isLength({ max: 100 })
     .withMessage('Course cannot exceed 100 characters'),
+  body('enquiryId')
+    .optional()
+    .isMongoId()
+    .withMessage('Please provide a valid enquiry ID'),
   body('admissionDate')
     .optional()
     .isISO8601()

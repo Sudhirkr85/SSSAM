@@ -135,8 +135,7 @@ class DashboardService {
 
     // Build base filter for counselor's assigned enquiries
     const enquiryFilter = {
-      assignedTo: user.id,
-      isDeleted: false
+      assignedTo: user.id
     };
     
     // Get main stats
@@ -210,8 +209,7 @@ class DashboardService {
     const courseBreakdown = await Enquiry.aggregate([
       { 
         $match: { 
-          assignedTo: user.id,
-          isDeleted: false 
+          assignedTo: user.id
         }
       },
       {

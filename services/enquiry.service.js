@@ -387,9 +387,12 @@ class EnquiryService {
         });
         
       case 'today_followups':
-        // followUpDate == today, status does NOT matter
+        // followUpDate == today, exclude ADMITTED status
         return enquiries.filter(enquiry => {
           if (!enquiry.followUpDate) return false;
+          
+          // Exclude ADMITTED enquiries
+          if (enquiry.status === ENQUIRY_STATUSES.ADMITTED) return false;
           
           // Convert both dates to UTC to avoid timezone issues
           const followUpDate = new Date(enquiry.followUpDate);
@@ -405,10 +408,10 @@ class EnquiryService {
         
       case 'pending_followups':
         // Include if: followUpDate < today, followUpDate is null, created today AND no action
-        // Exclude: status = NOT_INTERESTED
+        // Exclude: status = NOT_INTERESTED, status = ADMITTED
         return enquiries.filter(enquiry => {
-          // Exclude NOT_INTERESTED enquiries
-          if (enquiry.status === ENQUIRY_STATUSES.NOT_INTERESTED) return false;
+          // Exclude NOT_INTERESTED and ADMITTED enquiries
+          if (enquiry.status === ENQUIRY_STATUSES.NOT_INTERESTED || enquiry.status === ENQUIRY_STATUSES.ADMITTED) return false;
           
           // Include if followUpDate < today (overdue)
           if (enquiry.followUpDate) {

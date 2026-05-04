@@ -1,12 +1,40 @@
 const mongoose = require('mongoose');
-const { Admission, Payment } = require('../models');
+const { Admission, Payment, Enquiry } = require('../models');
 const AppError = require('../utils/AppError');
 const { ADMISSION_STATUSES, INSTALLMENT_STATUSES, PAYMENT_MODES, PAGINATION } = require('../config/constants');
 
 class AdmissionService {
   // Create Admission
   async createAdmission(data, user) {
-    const { name, email, mobile, course, admissionDate, totalFees, registrationAmount, installments = [] } = data;
+    let { name, email, mobile, course, admissionDate, totalFees, registrationAmount, installments = [], enquiryId } = data;
+
+    // If enquiryId is provided, fetch missing data from enquiry
+    if (enquiryId) {
+      const enquiry = await Enquiry.findById(enquiryId);
+      if (!enquiry) {
+        throw new AppError('Enquiry not found', 404);
+      }
+      
+      // Use enquiry data if not provided in request
+      name = name || enquiry.name;
+      email = email || enquiry.email;
+      mobile = mobile || enquiry.mobile;
+      course = course || enquiry.course;
+
+      // Update enquiry status to ADMITTED
+      await Enquiry.findByIdAndUpdate(enquiryId, {
+        status: 'ADMITTED',
+        updatedAt: new Date(),
+        $push: {
+          statusHistory: {
+            status: 'ADMITTED',
+            note: `Admission created by ${user.name || user.email}`,
+            changedBy: user.id,
+            changedAt: new Date()
+          }
+        }
+      });
+    }
 
     const admission = await Admission.create({
       name: name.trim(),
