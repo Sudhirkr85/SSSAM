@@ -249,7 +249,7 @@ npm start
 6. **Admission Validation** (Course-Level Integrity):
    - **Core Rule**: Use (mobile + course) as unique identity for admission validation
    - **Mobile Number Normalization**:
-     - All mobile numbers stored in format: `+91XXXXXXXXXX`
+     - All mobile numbers stored in format: `XXXXXXXXXX` (10 digits)
      - Automatic normalization applied during creation and updates
      - Supports various input formats: `9876543210`, `+919876543210`, `919876543210`
    - **Database-Level Protection**:
@@ -259,7 +259,7 @@ npm start
      - Cannot change course if admission exists for current course
      - Cannot change status if admission exists for current course
      - Safe fields (notes, etc.) can still be updated
-     - Error message: "Cannot update enquiry. Admission already exists for this course."
+     - Error message: "Cannot change course. Admission already exists for this course."
    - **Admission Creation Restrictions**:
      - Cannot create duplicate admission for same mobile + course
      - Error message: "Student already admitted in this course"

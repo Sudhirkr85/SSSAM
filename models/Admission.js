@@ -45,8 +45,8 @@ const admissionSchema = new mongoose.Schema({
     required: [true, 'Mobile number is required'],
     trim: true,
     match: [
-      /^\+91[0-9]{10}$/,
-      'Please provide a valid mobile number in format +91XXXXXXXXXX'
+      /^[0-9]{10}$/,
+      'Please provide a valid 10-digit mobile number'
     ]
   },
   course: {

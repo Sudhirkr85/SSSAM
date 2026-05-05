@@ -20,8 +20,8 @@ const createEnquiryValidation = [
     .trim()
     .notEmpty()
     .withMessage('Mobile number is required')
-    .matches(/^\+91[0-9]{10}$/)
-    .withMessage('Please provide a valid mobile number in format +91XXXXXXXXXX'),
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
 
   body('course')
     .trim()
@@ -44,8 +44,8 @@ const createEnquiryValidation = [
   body('referenceContact')
     .optional()
     .trim()
-    .matches(/^\+91[0-9]{10}$/)
-    .withMessage('Please provide a valid mobile number in format +91XXXXXXXXXX'),
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
 
   body('walkInBroughtBy')
     .optional()
@@ -215,8 +215,8 @@ const publicEnquiryValidation = [
     .trim()
     .notEmpty()
     .withMessage('Mobile number is required')
-    .matches(/^\+91[0-9]{10}$/)
-    .withMessage('Please provide a valid mobile number in format +91XXXXXXXXXX'),
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
 
   body('course')
     .trim()
@@ -267,8 +267,8 @@ const updateEnquiryDetailsValidation = [
     .trim()
     .notEmpty()
     .withMessage('Mobile number is required')
-    .matches(/^\+91[0-9]{10}$/)
-    .withMessage('Please provide a valid mobile number in format +91XXXXXXXXXX'),
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
 
   body('course')
     .trim()
@@ -291,8 +291,8 @@ const updateEnquiryDetailsValidation = [
   body('referenceContact')
     .optional()
     .trim()
-    .matches(/^\+91[0-9]{10}$/)
-    .withMessage('Please provide a valid mobile number in format +91XXXXXXXXXX'),
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
 
   body('walkInBroughtBy')
     .optional()

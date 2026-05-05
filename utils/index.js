@@ -16,18 +16,13 @@ const normalizeMobile = (mobile) => {
     mobileStr = mobileStr.substring(2);
   }
   
-  // If exactly 10 digits, add +91 prefix
-  if (mobileStr.length === 10) {
-    return `+91${mobileStr}`;
-  }
-  
-  // If already has +91, return as is
+  // If starts with +91 and has 12 digits, remove +91
   if (mobileStr.startsWith('91') && mobileStr.length === 12) {
-    return `+${mobileStr}`;
+    mobileStr = mobileStr.substring(2);
   }
   
-  // Return original if can't normalize
-  return mobile;
+  // Return 10-digit format
+  return mobileStr;
 };
 
 module.exports = {

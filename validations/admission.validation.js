@@ -28,8 +28,8 @@ const createAdmissionValidation = [
     .notEmpty()
     .withMessage('Mobile number is required when enquiryId is not provided')
     .if(body('mobile').exists())
-    .matches(/^\+91[0-9]{10}$/)
-    .withMessage('Please provide a valid mobile number in format +91XXXXXXXXXX'),
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
   body('course')
     .if(body('enquiryId').not().exists())
     .trim()
@@ -101,8 +101,8 @@ const updateAdmissionValidation = [
   body('mobile')
     .optional()
     .trim()
-    .matches(/^\+91[0-9]{10}$/)
-    .withMessage('Please provide a valid mobile number in format +91XXXXXXXXXX'),
+    .matches(/^[0-9]{10}$/)
+    .withMessage('Please provide a valid 10-digit mobile number'),
   body('course')
     .optional()
     .trim()

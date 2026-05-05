@@ -298,9 +298,9 @@ class EnquiryService {
         // Normalize mobile number
         const mobile = normalizeMobile(mobileRaw);
 
-        if (!mobile || !mobile.match(/^\+91[0-9]{10}$/)) {
+        if (!mobile || !mobile.match(/^[0-9]{10}$/)) {
           logger.warn('Row skipped - invalid mobile', { row: i + 1, mobile: mobileRaw });
-          errors.push({ row: i + 1, error: 'Invalid mobile number (must be in format +91XXXXXXXXXX)' });
+          errors.push({ row: i + 1, error: 'Invalid mobile number (must be 10 digits)' });
           continue;
         }
 
