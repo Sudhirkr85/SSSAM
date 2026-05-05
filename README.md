@@ -246,7 +246,27 @@ npm start
    - **Installments array** for payment tracking
    - **Upcoming installment sorting** for better management
 
-6. **Payment** (Simplified):
+6. **Admission Validation** (Course-Level Integrity):
+   - **Core Rule**: Use (mobile + course) as unique identity for admission validation
+   - **Mobile Number Normalization**:
+     - All mobile numbers stored in format: `+91XXXXXXXXXX`
+     - Automatic normalization applied during creation and updates
+     - Supports various input formats: `9876543210`, `+919876543210`, `919876543210`
+   - **Database-Level Protection**:
+     - Compound unique index on `(mobile + course)` in Admission collection
+     - Prevents duplicate admissions even if API validation fails
+   - **Enquiry Update Restrictions**:
+     - Cannot change course if admission exists for current course
+     - Cannot change status if admission exists for current course
+     - Safe fields (notes, etc.) can still be updated
+     - Error message: "Cannot update enquiry. Admission already exists for this course."
+   - **Admission Creation Restrictions**:
+     - Cannot create duplicate admission for same mobile + course
+     - Error message: "Student already admitted in this course"
+   - **Multiple Courses Supported**: Same student can have admissions for different courses
+   - **Enquiry Locking**: Once admission exists for (mobile + course), enquiry becomes locked for critical changes
+
+7. **Payment** (Simplified):
    - Simple payment record with amount, mode, date, note
    - No payment types, statuses, refund tracking
    - Notes can describe payment type ("initial", "full", "refund")

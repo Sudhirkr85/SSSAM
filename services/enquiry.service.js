@@ -2,11 +2,15 @@ const { Enquiry } = require('../models');
 const { ROLES, PAGINATION, ENQUIRY_STATUSES } = require('../config/constants');
 const AppError = require('../utils/AppError');
 const logger = require('../utils/logger');
+const { normalizeMobile } = require('../utils');
 
 class EnquiryService {
   async createEnquiry(data, user) {
+    // Normalize mobile number
+    const normalizedMobile = normalizeMobile(data.mobile);
+    
     // Check for duplicate mobile number
-    const existingEnquiry = await Enquiry.findOne({ mobile: data.mobile })
+    const existingEnquiry = await Enquiry.findOne({ mobile: normalizedMobile })
       .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email');
 
@@ -29,6 +33,7 @@ class EnquiryService {
 
     const enquiry = await Enquiry.create({
       ...data,
+      mobile: normalizedMobile,
       createdBy: user.id,
       assignedTo: data.assignedTo || (isAdmin ? null : user.id),
       // Do not set default status or status history for new enquiries
@@ -38,8 +43,11 @@ class EnquiryService {
   }
 
   async createPublicEnquiry(data) {
+    // Normalize mobile number
+    const normalizedMobile = normalizeMobile(data.mobile);
+    
     // Check for duplicate mobile number
-    const existingEnquiry = await Enquiry.findOne({ mobile: data.mobile })
+    const existingEnquiry = await Enquiry.findOne({ mobile: normalizedMobile })
       .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email');
 
@@ -62,7 +70,7 @@ class EnquiryService {
     // For now, we'll set createdBy to null or a default system user
     const enquiry = await Enquiry.create({
       name: data.name,
-      mobile: data.mobile,
+      mobile: normalizedMobile,
       email: data.email || null,
       course: data.course,
       source: 'website',
@@ -142,7 +150,7 @@ class EnquiryService {
     };
   }
 
-  // Update Enquiry - Full update with no restrictions
+  // Update Enquiry - Full update with admission validation
   async updateEnquiry(enquiryId, data, user) {
     const { 
       name, email, mobile, course, 
@@ -151,8 +159,41 @@ class EnquiryService {
     } = data;
     let { followUpDate } = data;
 
+    // Normalize mobile if provided
+    const normalizedMobile = mobile ? normalizeMobile(mobile) : undefined;
+
     const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) throw new AppError('Enquiry not found', 404);
+
+    // Check if admission exists for current mobile+course combination
+    const { Admission } = require('../models');
+    const existingAdmissionForCurrentCourse = await Admission.findOne({ 
+      mobile: enquiry.mobile,
+      course: enquiry.course 
+    });
+
+    // Block course change if admission exists for current course
+    if (course !== undefined && course !== enquiry.course) {
+      // Check if admission exists for CURRENT course (should lock it)
+      if (existingAdmissionForCurrentCourse) {
+        throw new AppError('Cannot change course. Admission already exists for this course.', 400);
+      }
+      
+      // Also check if admission already exists for NEW course
+      const existingAdmissionForNewCourse = await Admission.findOne({ 
+        mobile: enquiry.mobile,
+        course: course 
+      });
+      
+      if (existingAdmissionForNewCourse) {
+        throw new AppError('Cannot update enquiry. Admission already exists for this course.', 400);
+      }
+    }
+
+    // Block status change if admission exists for current course
+    if (status !== undefined && status !== enquiry.status && existingAdmissionForCurrentCourse) {
+      throw new AppError('Cannot update enquiry. Admission already exists for this course.', 400);
+    }
 
     // Apply new status update logic
     if (status !== undefined) {
@@ -176,7 +217,7 @@ class EnquiryService {
     // Update student info
     if (name !== undefined) updateData.name = name.trim();
     if (email !== undefined) updateData.email = email ? email.trim().toLowerCase() : null;
-    if (mobile !== undefined) updateData.mobile = mobile;
+    if (mobile !== undefined) updateData.mobile = normalizedMobile;
     if (course !== undefined) updateData.course = course.trim();
 
     // Update source info
@@ -254,18 +295,12 @@ class EnquiryService {
           continue;
         }
 
-        // Handle mobile: remove +91 prefix if present, then remove all non-digits
-        let mobileStr = String(mobileRaw).trim();
-        if (mobileStr.startsWith('+91')) {
-          mobileStr = mobileStr.substring(3);
-        } else if (mobileStr.startsWith('91') && mobileStr.length === 12) {
-          mobileStr = mobileStr.substring(2);
-        }
-        const mobile = mobileStr.replace(/\D/g, '');
+        // Normalize mobile number
+        const mobile = normalizeMobile(mobileRaw);
 
-        if (mobile.length !== 10) {
-          logger.warn('Row skipped - invalid mobile', { row: i + 1, mobile });
-          errors.push({ row: i + 1, error: 'Invalid mobile number (must be 10 digits)' });
+        if (!mobile || !mobile.match(/^\+91[0-9]{10}$/)) {
+          logger.warn('Row skipped - invalid mobile', { row: i + 1, mobile: mobileRaw });
+          errors.push({ row: i + 1, error: 'Invalid mobile number (must be in format +91XXXXXXXXXX)' });
           continue;
         }
 

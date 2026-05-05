@@ -44,8 +44,8 @@ const enquirySchema = new mongoose.Schema({
     required: [true, 'Mobile number is required'],
     trim: true,
     match: [
-      /^[0-9]{10}$/,
-      'Please provide a valid 10-digit mobile number'
+      /^\+91[0-9]{10}$/,
+      'Please provide a valid mobile number in format +91XXXXXXXXXX'
     ]
   },
   course: {
@@ -68,7 +68,7 @@ const enquirySchema = new mongoose.Schema({
   referenceContact: {
     type: String,
     trim: true,
-    match: [/^[0-9]{10}$/, 'Please provide a valid 10-digit mobile number'],
+    match: [/^\+91[0-9]{10}$/, 'Please provide a valid mobile number in format +91XXXXXXXXXX'],
     default: null
   },
   walkInBroughtBy: {

@@ -2,73 +2,112 @@ const mongoose = require('mongoose');
 const { Admission, Payment, Enquiry } = require('../models');
 const AppError = require('../utils/AppError');
 const { ADMISSION_STATUSES, INSTALLMENT_STATUSES, PAYMENT_MODES, PAGINATION } = require('../config/constants');
+const { normalizeMobile } = require('../utils');
 
 class AdmissionService {
   // Create Admission
   async createAdmission(data, user) {
-    let { name, email, mobile, course, admissionDate, totalFees, registrationAmount, installments = [], enquiryId } = data;
+    let { name, email, mobile, course, admissionDate, totalFees, registrationAmount, installments = [], enquiryId, initialPayment, initialPaymentMode, paymentDate } = data;
 
-    // If enquiryId is provided, fetch missing data from enquiry
-    if (enquiryId) {
-      const enquiry = await Enquiry.findById(enquiryId);
-      if (!enquiry) {
-        throw new AppError('Enquiry not found', 404);
-      }
-      
-      // Use enquiry data if not provided in request
-      name = name || enquiry.name;
-      email = email || enquiry.email;
-      mobile = mobile || enquiry.mobile;
-      course = course || enquiry.course;
+    // Normalize mobile number
+    const normalizedMobile = normalizeMobile(mobile);
 
-      // Update enquiry status to ADMITTED
-      await Enquiry.findByIdAndUpdate(enquiryId, {
-        status: 'ADMITTED',
-        updatedAt: new Date(),
-        $push: {
-          statusHistory: {
-            status: 'ADMITTED',
-            note: `Admission created by ${user.name || user.email}`,
-            changedBy: user.id,
-            changedAt: new Date()
-          }
+    // Start transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // If enquiryId is provided, fetch missing data from enquiry
+      if (enquiryId) {
+        const enquiry = await Enquiry.findById(enquiryId).session(session);
+        if (!enquiry) {
+          throw new AppError('Enquiry not found', 404);
         }
-      });
+        
+        // Use enquiry data if not provided in request
+        name = name || enquiry.name;
+        email = email || enquiry.email;
+        mobile = normalizedMobile || enquiry.mobile;
+        course = course || enquiry.course;
+      } else {
+        mobile = normalizedMobile;
+      }
+
+      // Check for duplicate admission (same mobile and course) - BEFORE any processing
+      const existingAdmission = await Admission.findOne({ mobile, course }).session(session);
+      if (existingAdmission) {
+        throw new AppError('Student already admitted in this course', 409);
+      }
+
+      // Handle initialPayment fields - map to registrationAmount
+      if (initialPayment !== undefined) {
+        registrationAmount = initialPayment;
+      }
+      if (initialPaymentMode !== undefined) {
+        data.paymentMode = initialPaymentMode;
+      }
+
+      // Update enquiry status to ADMITTED (after duplicate check)
+      if (enquiryId) {
+        await Enquiry.findByIdAndUpdate(enquiryId, {
+          status: 'ADMITTED',
+          updatedAt: new Date(),
+          $push: {
+            statusHistory: {
+              status: 'ADMITTED',
+              note: `Admission created by ${user.name || user.email}`,
+              changedBy: user.id,
+              changedAt: new Date()
+            }
+          }
+        }).session(session);
+      }
+
+      const admission = await Admission.create([{
+        name: name.trim(),
+        email: email ? email.trim().toLowerCase() : null,
+        mobile,
+        course: course.trim(),
+        admissionDate: admissionDate || new Date(),
+        totalFees,
+        registrationAmount: registrationAmount || 0,
+        installments: installments.map(inst => ({
+          amount: inst.amount,
+          dueDate: new Date(inst.dueDate),
+          note: inst.note || null,
+          status: INSTALLMENT_STATUSES.PENDING
+        })),
+        status: ADMISSION_STATUSES.ACTIVE,
+        counselorId: user.id,
+        createdBy: user.id,
+        updatedBy: user.id
+      }], { session });
+
+      const admissionDoc = admission[0];
+
+      // Create initial payment record if registrationAmount > 0
+      if (registrationAmount > 0) {
+        await Payment.create([{
+          admissionId: admissionDoc._id,
+          amount: registrationAmount,
+          paymentMode: data.paymentMode || PAYMENT_MODES.CASH,
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          note: 'Registration amount',
+          createdBy: user.id
+        }], { session });
+      }
+
+      // Commit transaction
+      await session.commitTransaction();
+      session.endSession();
+
+      return await this.getAdmissionById(admissionDoc._id);
+    } catch (error) {
+      // Abort transaction on error
+      await session.abortTransaction();
+      session.endSession();
+      throw error;
     }
-
-    const admission = await Admission.create({
-      name: name.trim(),
-      email: email ? email.trim().toLowerCase() : null,
-      mobile,
-      course: course.trim(),
-      admissionDate: admissionDate || new Date(),
-      totalFees,
-      registrationAmount: registrationAmount || 0,
-      installments: installments.map(inst => ({
-        amount: inst.amount,
-        dueDate: new Date(inst.dueDate),
-        note: inst.note || null,
-        status: INSTALLMENT_STATUSES.PENDING
-      })),
-      status: ADMISSION_STATUSES.ACTIVE,
-      counselorId: user.id,
-      createdBy: user.id,
-      updatedBy: user.id
-    });
-
-    // Create initial payment record if registrationAmount > 0
-    if (registrationAmount > 0) {
-      await Payment.create({
-        admissionId: admission._id,
-        amount: registrationAmount,
-        paymentMode: data.paymentMode || PAYMENT_MODES.CASH,
-        paymentDate: new Date(),
-        note: 'Registration amount',
-        createdBy: user.id
-      });
-    }
-
-    return await this.getAdmissionById(admission._id);
   }
 
   // Get Single Admission
@@ -200,7 +239,7 @@ class AdmissionService {
     // Update student info
     if (data.name !== undefined) updateData.name = data.name.trim();
     if (data.email !== undefined) updateData.email = data.email ? data.email.trim().toLowerCase() : null;
-    if (data.mobile !== undefined) updateData.mobile = data.mobile;
+    if (data.mobile !== undefined) updateData.mobile = normalizeMobile(data.mobile);
     if (data.course !== undefined) updateData.course = data.course.trim();
     if (data.admissionDate !== undefined) updateData.admissionDate = data.admissionDate;
 

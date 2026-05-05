@@ -45,8 +45,8 @@ const admissionSchema = new mongoose.Schema({
     required: [true, 'Mobile number is required'],
     trim: true,
     match: [
-      /^[0-9]{10}$/,
-      'Please provide a valid 10-digit mobile number'
+      /^\+91[0-9]{10}$/,
+      'Please provide a valid mobile number in format +91XXXXXXXXXX'
     ]
   },
   course: {
@@ -101,5 +101,6 @@ admissionSchema.index({ counselorId: 1 });
 admissionSchema.index({ createdAt: -1 });
 admissionSchema.index({ status: 1 });
 admissionSchema.index({ mobile: 1 });
+admissionSchema.index({ mobile: 1, course: 1 }, { unique: true });
 
 module.exports = mongoose.model('Admission', admissionSchema);
