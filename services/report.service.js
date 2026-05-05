@@ -61,7 +61,7 @@ class ReportService {
     const previousPeriodFilter = hasDateFilter ? { createdAt: { $lt: startDate } } : {};
 
     const [admissions, periodAdmissions, previousPeriodAdmissions, totalEnquiries] = await Promise.all([
-      Admission.find(admissionDateFilter).populate('enquiryId', 'name'),
+      Admission.find(admissionDateFilter).select('name email mobile course totalFees registrationAmount installments status counselorId createdAt'),
       Admission.countDocuments(admissionDateFilter),
       Admission.countDocuments(previousPeriodFilter),
       Enquiry.countDocuments(enquiryDateFilter)
@@ -307,12 +307,12 @@ class ReportService {
       ? { paymentDate: { $gte: startDate, $lte: endDate } }
       : {};
     
-    // Get enquiry stats by course
+    // Get enquiry stats by course (using 'course' field, not 'courseInterested')
     const enquiryStats = await Enquiry.aggregate([
       { $match: enquiryDateFilter },
       {
         $group: {
-          _id: '$courseInterested',
+          _id: '$course',
           totalEnquiries: { $sum: 1 },
           converted: {
             $sum: { $cond: [{ $eq: ['$status', ENQUIRY_STATUSES.CONVERTED] }, 1, 0] }
@@ -322,28 +322,19 @@ class ReportService {
       { $sort: { totalEnquiries: -1 } }
     ]);
 
-    // Get admissions by course
+    // Get admissions by course (direct from admission collection)
     const admissionStats = await Admission.aggregate([
       { $match: admissionDateFilter },
       {
-        $lookup: {
-          from: 'enquiries',
-          localField: 'enquiryId',
-          foreignField: '_id',
-          as: 'enquiry'
-        }
-      },
-      { $unwind: '$enquiry' },
-      {
         $group: {
-          _id: '$enquiry.courseInterested',
+          _id: '$course',
           admissions: { $sum: 1 },
           totalFees: { $sum: '$totalFees' }
         }
       }
     ]);
 
-    // Get payments by course (via admission)
+    // Get payments by course (via admission lookup)
     const paymentStats = await Payment.aggregate([
       { $match: { ...paymentDateFilter, status: 'success', type: { $ne: 'refund' } } },
       {
@@ -356,17 +347,8 @@ class ReportService {
       },
       { $unwind: '$admission' },
       {
-        $lookup: {
-          from: 'enquiries',
-          localField: 'admission.enquiryId',
-          foreignField: '_id',
-          as: 'enquiry'
-        }
-      },
-      { $unwind: '$enquiry' },
-      {
         $group: {
-          _id: '$enquiry.courseInterested',
+          _id: '$admission.course',
           paidAmount: { $sum: '$amount' }
         }
       }
@@ -410,6 +392,9 @@ class ReportService {
       };
     });
 
+    // Sort by revenue descending
+    courseStats.sort((a, b) => b.revenue - a.revenue);
+
     return { 
       dateRange: hasDateFilter ? { startDate, endDate } : null,
       courseStats 
@@ -426,7 +411,7 @@ class ReportService {
     const admissions = await Admission.find({
       paymentType: 'INSTALLMENT',
       installments: { $exists: true, $ne: [] }
-    }).populate('enquiryId', 'name');
+    }).select('name mobile course installments');
 
     const overdue = [];
     const upcoming = [];
@@ -441,9 +426,9 @@ class ReportService {
           overdue.push({
             admissionId: admission._id,
             installmentId: installment._id,
-            studentName: admission.enquiryId?.name,
-            mobile: admission.enquiryId?.mobile,
-            course: admission.enquiryId?.courseInterested,
+            studentName: admission.name,
+            mobile: admission.mobile,
+            course: admission.course,
             amount: installment.amount,
             paidAmount: installment.paidAmount,
             dueDate: installment.dueDate,
@@ -453,9 +438,9 @@ class ReportService {
           upcoming.push({
             admissionId: admission._id,
             installmentId: installment._id,
-            studentName: admission.enquiryId?.name,
-            mobile: admission.enquiryId?.mobile,
-            course: admission.enquiryId?.courseInterested,
+            studentName: admission.name,
+            mobile: admission.mobile,
+            course: admission.course,
             amount: installment.amount,
             paidAmount: installment.paidAmount,
             dueDate: installment.dueDate,
@@ -481,15 +466,15 @@ class ReportService {
       .populate('assignedTo', 'name')
       .lean();
 
-    // Get all admission IDs for these enquiries
-    const enquiryIds = enquiries.map(e => e._id);
-    const admissions = await Admission.find({ enquiryId: { $in: enquiryIds }, isDeleted: false })
+    // Get admissions by mobile numbers (since enquiryId no longer exists)
+    const enquiryMobiles = enquiries.map(e => e.mobile);
+    const admissions = await Admission.find({ mobile: { $in: enquiryMobiles }, isDeleted: false })
       .lean();
 
-    // Create a map of enquiryId to admission
+    // Create a map of mobile to admission
     const admissionMap = {};
     admissions.forEach(adm => {
-      admissionMap[adm.enquiryId.toString()] = adm;
+      admissionMap[adm.mobile] = adm;
     });
 
     // Get all payments for these admissions
@@ -510,7 +495,7 @@ class ReportService {
 
     // Build response
     const students = enquiries.map(enquiry => {
-      const admission = admissionMap[enquiry._id.toString()];
+      const admission = admissionMap[enquiry.mobile];
       const hasAdmission = !!admission;
       
       let feesPaid = 0;
@@ -537,7 +522,7 @@ class ReportService {
         name: enquiry.name,
         email: enquiry.email,
         phone: enquiry.mobile,
-        course: enquiry.courseInterested,
+        course: enquiry.course,
         status: status,
         hasAdmission: hasAdmission,
         feesPaid: feesPaid,

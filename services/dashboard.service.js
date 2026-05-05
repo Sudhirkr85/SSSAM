@@ -627,6 +627,208 @@ class DashboardService {
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   }
 
+  // Get Admin Dashboard with exact structure required
+  async getAdminDashboard() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Get all admissions with payments for accurate calculations
+    const allAdmissions = await Admission.find().lean();
+    const totalAdmissions = allAdmissions.length;
+    
+    // Get all payments
+    const allPayments = await Payment.find().lean();
+    
+    // Get all enquiries
+    const totalEnquiries = await Enquiry.countDocuments();
+
+    // Active students (admissions with 'active' status - lowercase per constants)
+    const activeStudents = allAdmissions.filter(a => a.status === 'active').length;
+
+    // Total conversions = actual admissions (more accurate than ADMITTED enquiry count)
+    const totalConversions = totalAdmissions;
+
+    // Conversion rate based on actual admissions
+    const conversionRate = totalEnquiries > 0 
+      ? ((totalAdmissions / totalEnquiries) * 100).toFixed(1)
+      : 0;
+
+    // New leads = enquiries that are NOT ADMITTED (non-converted enquiries)
+    const newLeads = await Enquiry.countDocuments({ status: { $ne: 'ADMITTED' } });
+
+    // Today followups (enquiries with followUpDate today that are not ADMITTED)
+    const todayFollowups = await Enquiry.countDocuments({
+      followUpDate: { $gte: today, $lt: tomorrow },
+      status: { $ne: 'ADMITTED' }
+    });
+
+    // Pending followups (overdue - followUpDate before today, not ADMITTED)
+    const pendingFollowups = await Enquiry.countDocuments({
+      followUpDate: { $lt: today },
+      status: { $ne: 'ADMITTED' }
+    });
+
+    // Calculate total revenue from all payments
+    const totalRevenue = allPayments.reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate pending payments (remaining balance on all admissions)
+    let pendingPayments = 0;
+    for (const admission of allAdmissions) {
+      const admissionPayments = allPayments.filter(p => p.admissionId.toString() === admission._id.toString());
+      const paid = admissionPayments.reduce((sum, p) => sum + p.amount, 0);
+      pendingPayments += (admission.totalFees - paid);
+    }
+
+    // Recent enquiries (last 5)
+    const recentEnquiries = await Enquiry.find()
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('_id name mobile course status createdAt')
+      .lean();
+
+    const formattedEnquiries = recentEnquiries.map(e => ({
+      _id: e._id.toString(),
+      name: e.name,
+      mobile: e.mobile,
+      course: e.course,
+      status: e.status,
+      createdAt: e.createdAt.toISOString().split('T')[0]
+    }));
+
+    // Upcoming followups
+    const upcomingFollowupsData = await Enquiry.find({
+      followUpDate: { $gte: today },
+      status: { $ne: 'ADMITTED' }
+    })
+      .sort({ followUpDate: 1 })
+      .limit(5)
+      .select('name mobile followUpDate')
+      .lean();
+
+    const upcomingFollowups = upcomingFollowupsData.map(e => ({
+      name: e.name,
+      phone: e.mobile,
+      date: this._formatDateShort(e.followUpDate)
+    }));
+
+    // Course breakdown - use admission data for conversions and revenue
+    // Get all courses from both enquiries and admissions
+    const enquiryCourses = await Enquiry.aggregate([
+      {
+        $group: {
+          _id: '$course',
+          enquiries: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Create a map of course data from admissions
+    const admissionCourseMap = {};
+    for (const admission of allAdmissions) {
+      const course = admission.course;
+      if (!admissionCourseMap[course]) {
+        admissionCourseMap[course] = { admissions: 0, revenue: 0 };
+      }
+      admissionCourseMap[course].admissions += 1;
+      
+      const admPayments = allPayments.filter(p => p.admissionId.toString() === admission._id.toString());
+      admissionCourseMap[course].revenue += admPayments.reduce((sum, p) => sum + p.amount, 0);
+    }
+
+    // Format course breakdown combining enquiry and admission data
+    const formattedCourseBreakdown = enquiryCourses.map(c => {
+      const courseName = c._id;
+      const admData = admissionCourseMap[courseName] || { admissions: 0, revenue: 0 };
+      
+      return {
+        course: courseName,
+        enquiries: c.enquiries,
+        converted: admData.admissions,
+        revenue: admData.revenue,
+        conversionRate: c.enquiries > 0 ? ((admData.admissions / c.enquiries) * 100).toFixed(1) : 0
+      };
+    }).sort((a, b) => b.enquiries - a.enquiries);
+
+    // Monthly revenue (last 6 months)
+    const monthlyRevenue = {};
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      
+      const monthPayments = await Payment.aggregate([
+        {
+          $match: {
+            paymentDate: { $gte: monthStart, $lte: monthEnd }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$amount' }
+          }
+        }
+      ]);
+      
+      const monthTotal = monthPayments.length > 0 ? monthPayments[0].total : 0;
+      monthlyRevenue[monthNames[date.getMonth()]] = monthTotal;
+    }
+
+    // Source breakdown
+    const sourceBreakdown = await Enquiry.aggregate([
+      {
+        $group: {
+          _id: '$source',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const formattedSourceBreakdown = {};
+    sourceBreakdown.forEach(s => {
+      if (s._id) {
+        formattedSourceBreakdown[s._id] = s.count;
+      }
+    });
+
+    // Funnel data - using actual enquiry statuses from constants
+    // ADMITTED = converted, INTERESTED = hot lead, CONTACTED = follow up
+    const [interestedCount, contactedCount] = await Promise.all([
+      Enquiry.countDocuments({ status: 'INTERESTED' }),
+      Enquiry.countDocuments({ status: 'CONTACTED' })
+    ]);
+
+    const funnel = {
+      enquiries: totalEnquiries,
+      followUps: contactedCount,
+      hotLeads: interestedCount,
+      admissions: totalAdmissions
+    };
+
+    return {
+      totalEnquiries,
+      totalConversions,
+      totalRevenue,
+      activeStudents,
+      pendingPayments,
+      newLeads,
+      todayFollowups,
+      pendingFollowups,
+      conversionRate: parseFloat(conversionRate),
+      enquiries: formattedEnquiries,
+      upcomingFollowups,
+      courseBreakdown: formattedCourseBreakdown,
+      monthlyRevenue,
+      sourceBreakdown: formattedSourceBreakdown,
+      funnel
+    };
+  }
+
   _getDateFilterForRange(range, dateFrom, dateTo) {
     if (dateFrom || dateTo) {
       // Custom date range

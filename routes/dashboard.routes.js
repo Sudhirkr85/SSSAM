@@ -53,4 +53,11 @@ router.get(
   dashboardController.getTodayCalls
 );
 
+// GET /dashboard/admin - Admin dashboard with full stats
+router.get(
+  '/admin',
+  roleMiddleware(ROLES.ADMIN),
+  dashboardController.getAdminDashboard
+);
+
 module.exports = router;

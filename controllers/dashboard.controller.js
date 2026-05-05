@@ -73,6 +73,17 @@ class DashboardController {
       'Today calls retrieved successfully'
     );
   });
+
+  // GET /dashboard/admin - Admin dashboard with full stats
+  getAdminDashboard = catchAsync(async (req, res) => {
+    const dashboard = await dashboardService.getAdminDashboard();
+
+    return successResponse(
+      res,
+      dashboard,
+      'Admin dashboard retrieved successfully'
+    );
+  });
 }
 
 module.exports = new DashboardController();
