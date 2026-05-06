@@ -48,6 +48,11 @@ class AdmissionController {
     const payments = await admissionService.listPayments(req.params.id);
     return successResponse(res, { payments }, 'Payments retrieved successfully');
   });
+
+  dropStudent = catchAsync(async (req, res) => {
+    const result = await admissionService.dropStudent(req.params.id, req.body, req.user);
+    return successResponse(res, result, 'Student dropped successfully');
+  });
 }
 
 module.exports = new AdmissionController();

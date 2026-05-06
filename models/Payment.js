@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { PAYMENT_MODES } = require('../config/constants');
+const { PAYMENT_MODES, PAYMENT_RECORD_TYPES, PAYMENT_STATUSES } = require('../config/constants');
 
 const paymentSchema = new mongoose.Schema({
   admissionId: {
@@ -18,6 +18,16 @@ const paymentSchema = new mongoose.Schema({
     enum: Object.values(PAYMENT_MODES),
     trim: true
   },
+  type: {
+    type: String,
+    enum: Object.values(PAYMENT_RECORD_TYPES),
+    default: 'initial'
+  },
+  status: {
+    type: String,
+    enum: Object.values(PAYMENT_STATUSES),
+    default: 'success'
+  },
   paymentDate: {
     type: Date,
     default: Date.now
@@ -31,6 +41,24 @@ const paymentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  refundDetails: {
+    reason: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Refund reason cannot exceed 500 characters']
+    },
+    originalPaymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment'
+    },
+    processedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    processedAt: {
+      type: Date
+    }
   }
 }, {
   timestamps: true

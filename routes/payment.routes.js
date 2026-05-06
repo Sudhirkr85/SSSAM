@@ -7,6 +7,7 @@ const {
   roleMiddleware,
   validateRequest
 } = require('../middleware');
+const { refundPaymentValidation } = require('../validations/payment.validation');
 const { ROLES } = require('../config/constants');
 
 router.use(authMiddleware);
@@ -23,6 +24,15 @@ router.post(
   '/check-overdue',
   roleMiddleware(ROLES.ADMIN),
   paymentController.checkOverdueInstallments
+);
+
+// POST /payments/:id/refund - Refund a payment
+router.post(
+  '/:id/refund',
+  roleMiddleware(ROLES.ADMIN),
+  refundPaymentValidation,
+  validateRequest,
+  paymentController.refundPayment
 );
 
 module.exports = router;

@@ -91,6 +91,15 @@ const admissionSchema = new mongoose.Schema({
     type: Number,
     default: null,
     min: [0, 'Write-off amount cannot be negative']
+  },
+  dropDate: {
+    type: Date,
+    default: null
+  },
+  dropReason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Drop reason cannot exceed 500 characters']
   }
 }, {
   timestamps: true

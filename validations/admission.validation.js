@@ -182,9 +182,30 @@ const recordPaymentValidation = [
     .withMessage('Note cannot exceed 500 characters')
 ];
 
+const dropStudentValidation = [
+  body('reason')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Drop reason cannot exceed 500 characters'),
+  
+  body('dropDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Please provide a valid drop date')
+    .toDate(),
+  
+  body('clearDues')
+    .optional()
+    .isBoolean()
+    .withMessage('clearDues must be a boolean')
+    .toBoolean()
+];
+
 module.exports = {
   admissionIdParamValidation,
   createAdmissionValidation,
   updateAdmissionValidation,
-  recordPaymentValidation
+  recordPaymentValidation,
+  dropStudentValidation
 };

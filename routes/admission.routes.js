@@ -12,7 +12,8 @@ const {
   admissionIdParamValidation,
   createAdmissionValidation,
   updateAdmissionValidation,
-  recordPaymentValidation
+  recordPaymentValidation,
+  dropStudentValidation
 } = require('../validations');
 
 router.use(authMiddleware);
@@ -69,6 +70,16 @@ router.get(
   admissionIdParamValidation,
   validateRequest,
   admissionController.listPayments
+);
+
+// POST /admissions/:id/drop - Drop student
+router.post(
+  '/:id/drop',
+  roleMiddleware(ROLES.ADMIN),
+  admissionIdParamValidation,
+  dropStudentValidation,
+  validateRequest,
+  admissionController.dropStudent
 );
 
 module.exports = router;

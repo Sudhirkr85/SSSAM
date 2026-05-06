@@ -16,6 +16,16 @@ class PaymentService {
       filter.admissionId = query.admissionId;
     }
 
+    // Filter by payment type (e.g., 'refund' or exclude refunds)
+    if (query.type) {
+      filter.type = query.type;
+    }
+
+    // Filter by status
+    if (query.status) {
+      filter.status = query.status;
+    }
+
     // Date filter
     if (query.dateFrom || query.dateTo) {
       filter.paymentDate = {};
@@ -72,7 +82,9 @@ class PaymentService {
       ...payment,
       studentName: admissionMap.get(payment.admissionId.toString())?.name,
       studentMobile: admissionMap.get(payment.admissionId.toString())?.mobile,
-      course: admissionMap.get(payment.admissionId.toString())?.course
+      course: admissionMap.get(payment.admissionId.toString())?.course,
+      isRefund: payment.type === 'refund',
+      refundDetails: payment.refundDetails || null
     }));
 
     return {
@@ -129,6 +141,99 @@ class PaymentService {
       updatedAdmissions: updatedCount,
       overdueCount: overdueInstallments.length,
       overdueInstallments
+    };
+  }
+
+  // Process refund for a payment
+  async refundPayment(paymentId, refundData, user) {
+    const { reason, refundMode } = refundData;
+    
+    // Find the original payment
+    const originalPayment = await Payment.findById(paymentId);
+    if (!originalPayment) {
+      throw new AppError('Payment not found', 404);
+    }
+
+    // Validate payment can be refunded
+    if (originalPayment.type === 'refund') {
+      throw new AppError('Cannot refund a refund transaction', 400);
+    }
+
+    // Handle old payments that may not have status field (treat undefined as 'success')
+    const paymentStatus = originalPayment.status || 'success';
+    if (paymentStatus !== 'success') {
+      throw new AppError('Only successful payments can be refunded', 400);
+    }
+
+    // Calculate total paid vs refunded for this admission
+    // Use $or to find payments with status='success' or no status field (legacy payments)
+    const allPayments = await Payment.find({
+      admissionId: originalPayment.admissionId,
+      $or: [
+        { status: 'success' },
+        { status: { $exists: false } }
+      ]
+    });
+
+    const totalPaid = allPayments
+      .filter(p => (p.type || 'initial') !== 'refund')
+      .reduce((sum, p) => sum + p.amount, 0);
+    
+    const totalRefunded = allPayments
+      .filter(p => p.type === 'refund')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const netAmount = totalPaid - totalRefunded;
+
+    // Validate refund amount - allow multiple partial refunds up to net paid
+    const refundAmount = refundData.amount || originalPayment.amount;
+    if (refundAmount > netAmount) {
+      throw new AppError(
+        `Refund amount (${refundAmount}) exceeds available balance (${netAmount})`,
+        400
+      );
+    }
+
+    // Create refund payment record
+    const refundPayment = await Payment.create({
+      admissionId: originalPayment.admissionId,
+      amount: refundAmount,
+      paymentMode: refundMode || originalPayment.paymentMode,
+      type: 'refund',
+      status: 'success',
+      note: `Refund for payment #${originalPayment._id}`,
+      createdBy: user.id,
+      refundDetails: {
+        reason: reason || 'No reason provided',
+        originalPaymentId: originalPayment._id,
+        processedBy: user.id,
+        processedAt: new Date()
+      }
+    });
+
+    // Update admission's pending amount
+    const admission = await Admission.findById(originalPayment.admissionId);
+    if (admission) {
+      // Update admission balance
+      admission.markModified('pendingAmount');
+      await admission.save();
+    }
+
+    return {
+      refund: refundPayment,
+      originalPayment: {
+        id: originalPayment._id,
+        amount: originalPayment.amount,
+        paymentDate: originalPayment.paymentDate
+      },
+      admission: {
+        id: admission._id,
+        name: admission.name,
+        totalFees: admission.totalFees,
+        totalPaid,
+        totalRefunded: totalRefunded + refundAmount,
+        netPaid: netAmount - refundAmount
+      }
     };
   }
 }

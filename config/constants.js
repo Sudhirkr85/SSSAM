@@ -58,6 +58,7 @@ const PAYMENT_STATUSES = {
 const ADMISSION_STATUSES = {
   ACTIVE: 'active',
   CANCELLED: 'cancelled',
+  DROPPED: 'dropped',
   WRITE_OFF: 'write_off'
 };
 
@@ -90,7 +91,8 @@ const TIMELINE_TYPES = {
   PAYMENT_PLAN_SET: 'payment_plan_set',
   INSTALLMENT_CREATED: 'installment_created',
   INSTALLMENT_PAID: 'installment_paid',
-  FULL_PAYMENT_COMPLETED: 'full_payment_completed'
+  FULL_PAYMENT_COMPLETED: 'full_payment_completed',
+  DROPPED: 'dropped'
 };
 
 module.exports = {

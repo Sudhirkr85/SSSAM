@@ -11,10 +11,12 @@ const {
   admissionIdParamValidation,
   createAdmissionValidation,
   updateAdmissionValidation,
-  recordPaymentValidation
+  recordPaymentValidation,
+  dropStudentValidation
 } = require('./admission.validation');
 const {
-  paymentIdParamValidation
+  paymentIdParamValidation,
+  refundPaymentValidation
 } = require('./payment.validation');
 const { reportRangeValidation } = require('./report.validation');
 
@@ -32,6 +34,8 @@ module.exports = {
   createAdmissionValidation,
   updateAdmissionValidation,
   recordPaymentValidation,
+  dropStudentValidation,
   paymentIdParamValidation,
+  refundPaymentValidation,
   reportRangeValidation
 };

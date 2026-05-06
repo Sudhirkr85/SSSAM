@@ -304,6 +304,77 @@ class AdmissionService {
     return payments;
   }
 
+  // Drop Student
+  async dropStudent(admissionId, dropData, user) {
+    const { reason, dropDate, clearDues } = dropData;
+    
+    // Find admission
+    const admission = await Admission.findById(admissionId);
+    if (!admission) {
+      throw new AppError('Admission not found', 404);
+    }
+
+    // Check if already dropped
+    if (admission.status === ADMISSION_STATUSES.DROPPED) {
+      throw new AppError('Student is already dropped', 400);
+    }
+
+    // Calculate total paid and refunded
+    const allPayments = await Payment.find({
+      admissionId: admissionId,
+      $or: [
+        { status: 'success' },
+        { status: { $exists: false } }
+      ]
+    });
+
+    const totalPaid = allPayments
+      .filter(p => (p.type || 'initial') !== 'refund')
+      .reduce((sum, p) => sum + p.amount, 0);
+    
+    const totalRefunded = allPayments
+      .filter(p => p.type === 'refund')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const netPaid = totalPaid - totalRefunded;
+    const pendingAmount = admission.totalFees - netPaid;
+
+    // Update admission
+    const updateData = {
+      status: ADMISSION_STATUSES.DROPPED,
+      dropDate: dropDate ? new Date(dropDate) : new Date(),
+      dropReason: reason || 'No reason provided',
+      updatedBy: user.id,
+      updatedAt: new Date()
+    };
+
+    // Clear dues if requested
+    if (clearDues && pendingAmount > 0) {
+      updateData.writeOffAmount = pendingAmount;
+    }
+
+    await Admission.findByIdAndUpdate(admissionId, { $set: updateData });
+
+    return {
+      admission: {
+        id: admission._id,
+        name: admission.name,
+        course: admission.course,
+        status: ADMISSION_STATUSES.DROPPED,
+        dropDate: updateData.dropDate,
+        dropReason: updateData.dropReason
+      },
+      financials: {
+        totalFees: admission.totalFees,
+        totalPaid,
+        totalRefunded,
+        netPaid,
+        pendingAmount: clearDues ? 0 : pendingAmount,
+        writeOffAmount: clearDues && pendingAmount > 0 ? pendingAmount : 0
+      }
+    };
+  }
+
   // Helper: Calculate total paid
   async _calculateTotalPaid(admissionId) {
     const result = await Payment.aggregate([
