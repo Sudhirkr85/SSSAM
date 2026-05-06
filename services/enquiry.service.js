@@ -8,7 +8,7 @@ class EnquiryService {
   async createEnquiry(data, user) {
     // Normalize mobile number
     const normalizedMobile = normalizeMobile(data.mobile);
-    
+
     // Check for duplicate mobile number
     const existingEnquiry = await Enquiry.findOne({ mobile: normalizedMobile })
       .populate('assignedTo', 'name email')
@@ -23,7 +23,7 @@ class EnquiryService {
       existingObj.isOverdue = existingObj.followUpDate && new Date(existingObj.followUpDate) < today;
       delete existingObj.id;
 
-      throw new AppError('Duplicate mobile number found', 409, {
+      throw new AppError('Student already registered', 409, {
         duplicate: true,
         existingEnquiry: existingObj
       });
@@ -45,7 +45,7 @@ class EnquiryService {
   async createPublicEnquiry(data) {
     // Normalize mobile number
     const normalizedMobile = normalizeMobile(data.mobile);
-    
+
     // Check for duplicate mobile number
     const existingEnquiry = await Enquiry.findOne({ mobile: normalizedMobile })
       .populate('assignedTo', 'name email')
@@ -60,7 +60,7 @@ class EnquiryService {
       existingObj.isOverdue = existingObj.followUpDate && new Date(existingObj.followUpDate) < today;
       delete existingObj.id;
 
-      throw new AppError('Duplicate mobile number found', 409, {
+      throw new AppError('Student already registered', 409, {
         duplicate: true,
         existingEnquiry: existingObj
       });
@@ -172,11 +172,26 @@ class EnquiryService {
       course: enquiry.course 
     });
 
-    // Block course change if admission exists for current course
+    // If course changed and admission exists for current course, create new enquiry for new course
     if (course !== undefined && course !== enquiry.course) {
-      // Check if admission exists for CURRENT course (should lock it)
       if (existingAdmissionForCurrentCourse) {
-        throw new AppError('Cannot change course. Admission already exists for this course.', 400);
+        // Create new enquiry for new course instead of modifying admitted one
+        const newEnquiry = await Enquiry.create({
+          name: name || enquiry.name,
+          email: email || enquiry.email,
+          mobile: enquiry.mobile,
+          course: course.trim(),
+          source: source || enquiry.source,
+          referenceName: referenceName || enquiry.referenceName,
+          referenceContact: referenceContact || enquiry.referenceContact,
+          walkInBroughtBy: walkInBroughtBy || enquiry.walkInBroughtBy,
+          assignedTo: assignedTo || enquiry.assignedTo,
+          createdBy: user.id,
+          status: null,
+          statusHistory: []
+        });
+
+        return await this.getEnquiryById(newEnquiry._id);
       }
       
       // Also check if admission already exists for NEW course
@@ -188,11 +203,6 @@ class EnquiryService {
       if (existingAdmissionForNewCourse) {
         throw new AppError('Cannot update enquiry. Admission already exists for this course.', 400);
       }
-    }
-
-    // Block status change if admission exists for current course
-    if (status !== undefined && status !== enquiry.status && existingAdmissionForCurrentCourse) {
-      throw new AppError('Cannot update enquiry. Admission already exists for this course.', 400);
     }
 
     // Apply new status update logic
