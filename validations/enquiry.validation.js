@@ -193,8 +193,8 @@ const listEnquiriesValidation = [
 
   query('filterType')
     .optional()
-    .isIn(['all', 'new', 'today_followups', 'pending_followups', 'contacted', 'not_interested'])
-    .withMessage('filterType must be one of: all, new, today_followups, pending_followups, contacted, not_interested')
+    .isIn(['all', 'new', 'today_followups', 'pending_followups', 'contacted', 'not_interested', 'upcoming_followups'])
+    .withMessage('filterType must be one of: all, new, today_followups, pending_followups, contacted, not_interested, upcoming_followups')
 ];
 
 const enquiryIdParamValidation = [

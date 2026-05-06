@@ -123,7 +123,7 @@ class EnquiryService {
 
     // Apply special filter if specified
     if (filterType) {
-      enquiries = this._applySpecialFilter(enquiries, filterType);
+      enquiries = this._applySpecialFilter(enquiries, filterType, query);
     }
 
     // Apply pagination after filtering
@@ -394,7 +394,7 @@ class EnquiryService {
   }
 
   // Apply special filter logic
-  _applySpecialFilter(enquiries, filterType) {
+  _applySpecialFilter(enquiries, filterType, query) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
@@ -485,6 +485,34 @@ class EnquiryService {
       case 'not_interested':
         // status = NOT_INTERESTED
         return enquiries.filter(enquiry => enquiry.status === ENQUIRY_STATUSES.NOT_INTERESTED);
+        
+      case 'upcoming_followups':
+        // followUpDate >= today, exclude converted/admitted statuses
+        return enquiries.filter(enquiry => {
+          if (!enquiry.followUpDate) return false;
+          
+          // Exclude converted/admitted enquiries
+          if (enquiry.status === ENQUIRY_STATUSES.CONVERTED || enquiry.status === ENQUIRY_STATUSES.ADMITTED) return false;
+          
+          // Convert both dates to UTC to avoid timezone issues
+          const followUpDate = new Date(enquiry.followUpDate);
+          const todayUTC = new Date();
+          todayUTC.setUTCHours(0, 0, 0, 0);
+          
+          // Check if follow-up date is today or in the future (in UTC)
+          const followUpUTC = new Date(followUpDate);
+          followUpUTC.setUTCHours(0, 0, 0, 0);
+          
+          if (followUpUTC.getTime() < todayUTC.getTime()) return false;
+          
+          // If daysAhead parameter is provided, check if follow-up is within that range
+          const daysAhead = parseInt(query.daysAhead) || 30; // Default 30 days
+          const maxDateUTC = new Date(todayUTC);
+          maxDateUTC.setDate(maxDateUTC.getDate() + daysAhead);
+          maxDateUTC.setUTCHours(0, 0, 0, 0);
+          
+          return followUpUTC.getTime() <= maxDateUTC.getTime();
+        }).sort((a, b) => new Date(a.followUpDate) - new Date(b.followUpDate)); // Sort by earliest first
         
       default:
         return enquiries;
