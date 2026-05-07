@@ -46,6 +46,7 @@ class AdmissionService {
     if (enquiryId) {
       await Enquiry.findByIdAndUpdate(enquiryId, {
         status: 'ADMITTED',
+        followUpDate: null,
         updatedAt: new Date(),
         $push: {
           statusHistory: {
