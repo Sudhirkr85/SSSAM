@@ -2,12 +2,11 @@ const { Enquiry } = require('../models');
 const { ROLES, PAGINATION, ENQUIRY_STATUSES } = require('../config/constants');
 const AppError = require('../utils/AppError');
 const logger = require('../utils/logger');
-const { normalizeMobile } = require('../utils');
 
 class EnquiryService {
   async createEnquiry(data, user) {
-    // Normalize mobile number
-    const normalizedMobile = normalizeMobile(data.mobile);
+    // Use mobile number directly (normalization handled in frontend)
+    const normalizedMobile = data.mobile;
 
     // Check for duplicate mobile number
     const existingEnquiry = await Enquiry.findOne({ mobile: normalizedMobile })
@@ -43,11 +42,8 @@ class EnquiryService {
   }
 
   async createPublicEnquiry(data) {
-    // Normalize mobile number
-    const normalizedMobile = normalizeMobile(data.mobile);
-
     // Check for duplicate mobile number
-    const existingEnquiry = await Enquiry.findOne({ mobile: normalizedMobile })
+    const existingEnquiry = await Enquiry.findOne({ mobile: data.mobile })
       .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email');
 
@@ -70,7 +66,7 @@ class EnquiryService {
     // For now, we'll set createdBy to null or a default system user
     const enquiry = await Enquiry.create({
       name: data.name,
-      mobile: normalizedMobile,
+      mobile: data.mobile,
       email: data.email || null,
       course: data.course,
       source: 'website',
@@ -159,8 +155,6 @@ class EnquiryService {
     } = data;
     let { followUpDate } = data;
 
-    // Normalize mobile if provided
-    const normalizedMobile = mobile ? normalizeMobile(mobile) : undefined;
 
     const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) throw new AppError('Enquiry not found', 404);
@@ -227,7 +221,7 @@ class EnquiryService {
     // Update student info
     if (name !== undefined) updateData.name = name.trim();
     if (email !== undefined) updateData.email = email ? email.trim().toLowerCase() : null;
-    if (mobile !== undefined) updateData.mobile = normalizedMobile;
+    if (mobile !== undefined) updateData.mobile = mobile;
     if (course !== undefined) updateData.course = course.trim();
 
     // Update source info
@@ -305,8 +299,8 @@ class EnquiryService {
           continue;
         }
 
-        // Normalize mobile number
-        const mobile = normalizeMobile(mobileRaw);
+        // Use mobile number directly
+        const mobile = mobileRaw;
 
         if (!mobile || !mobile.match(/^[0-9]{10}$/)) {
           logger.warn('Row skipped - invalid mobile', { row: i + 1, mobile: mobileRaw });
