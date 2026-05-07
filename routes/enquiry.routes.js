@@ -45,6 +45,13 @@ router.get(
   enquiryController.listEnquiries
 );
 
+// GET /enquiries/walkin-brought-by - Get walk-in enquiries by brought by data
+router.get(
+  '/walkin-brought-by',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  enquiryController.getWalkInBroughtByData
+);
+
 // GET /enquiries/:id - Get single enquiry
 router.get(
   '/:id',

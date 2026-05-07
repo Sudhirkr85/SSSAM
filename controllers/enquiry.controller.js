@@ -136,6 +136,17 @@ class EnquiryController {
     );
   });
 
+  // GET /enquiries/walkin-brought-by - Get walk-in enquiries by brought by data
+  getWalkInBroughtByData = catchAsync(async (req, res) => {
+    const result = await enquiryService.getWalkInBroughtByData();
+    
+    return successResponse(
+      res,
+      result,
+      'Walk-in enquiries by brought by data retrieved successfully'
+    );
+  });
+
 }
 
 module.exports = new EnquiryController();

@@ -576,6 +576,46 @@ class EnquiryService {
 
     return filter;
   }
+
+  async getWalkInBroughtByData() {
+    // Aggregate enquiries by walkInBroughtBy
+    const result = await Enquiry.aggregate([
+      {
+        $group: {
+          _id: '$walkInBroughtBy',
+          count: { $sum: 1 },
+          courses: { $addToSet: '$course' }
+        }
+      },
+      {
+        $match: {
+          _id: { $ne: null }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      }
+    ]);
+
+    // Format the response
+    const summary = result.map(item => ({
+      broughtBy: item._id,
+      count: item.count,
+      courses: item.courses
+    }));
+
+    // Calculate totals
+    const totalEnquiries = await Enquiry.countDocuments();
+    const withWalkInBroughtBy = result.reduce((sum, item) => sum + item.count, 0);
+    const withoutWalkInBroughtBy = totalEnquiries - withWalkInBroughtBy;
+
+    return {
+      summary,
+      totalEnquiries,
+      withWalkInBroughtBy,
+      withoutWalkInBroughtBy
+    };
+  }
 }
 
 module.exports = new EnquiryService();
