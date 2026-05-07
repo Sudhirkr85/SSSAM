@@ -1,7 +1,7 @@
 const { Enquiry } = require('../models');
 const { ROLES, PAGINATION, ENQUIRY_STATUSES } = require('../config/constants');
 const AppError = require('../utils/AppError');
-const logger = require('../utils/logger');
+const { Admission } = require('../models');
 
 class EnquiryService {
   async createEnquiry(data, user) {
@@ -90,15 +90,15 @@ class EnquiryService {
     // Convert to object to add computed fields
     const enquiryObj = enquiry.toObject();
     enquiryObj.isUnassigned = !enquiryObj.assignedTo;
-    
+
     // Compute isOverdue flag
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     enquiryObj.isOverdue = enquiryObj.followUpDate && new Date(enquiryObj.followUpDate) < today;
-    
+
     // Remove duplicate 'id' virtual (already have '_id')
     delete enquiryObj.id;
-    
+
     return enquiryObj;
   }
 
@@ -148,10 +148,10 @@ class EnquiryService {
 
   // Update Enquiry - Full update with admission validation
   async updateEnquiry(enquiryId, data, user) {
-    const { 
-      name, email, mobile, course, 
+    const {
+      name, email, mobile, course,
       source, referenceName, referenceContact, walkInBroughtBy,
-      status, note, assignedTo 
+      status, note, assignedTo
     } = data;
     let { followUpDate } = data;
 
@@ -160,10 +160,9 @@ class EnquiryService {
     if (!enquiry) throw new AppError('Enquiry not found', 404);
 
     // Check if admission exists for current mobile+course combination
-    const { Admission } = require('../models');
-    const existingAdmissionForCurrentCourse = await Admission.findOne({ 
+    const existingAdmissionForCurrentCourse = await Admission.findOne({
       mobile: enquiry.mobile,
-      course: enquiry.course 
+      course: enquiry.course
     });
 
     // If course changed and admission exists for current course, create new enquiry for new course
@@ -187,13 +186,13 @@ class EnquiryService {
 
         return await this.getEnquiryById(newEnquiry._id);
       }
-      
+
       // Also check if admission already exists for NEW course
-      const existingAdmissionForNewCourse = await Admission.findOne({ 
+      const existingAdmissionForNewCourse = await Admission.findOne({
         mobile: enquiry.mobile,
-        course: course 
+        course: course
       });
-      
+
       if (existingAdmissionForNewCourse) {
         throw new AppError('Cannot update enquiry. Admission already exists for this course.', 400);
       }
@@ -205,7 +204,7 @@ class EnquiryService {
       if (status === ENQUIRY_STATUSES.NOT_INTERESTED) {
         followUpDate = null;
       }
-      
+
       // Rule 2: If CONTACTED and no follow-up → throw error
       if (status === ENQUIRY_STATUSES.CONTACTED && !followUpDate) {
         throw new AppError('Follow-up date is required when status is CONTACTED', 400);
@@ -261,7 +260,7 @@ class EnquiryService {
   }
 
   async bulkUpload(dataArray, user) {
-    logger.debug('Bulk upload started', { rows: dataArray.length, userId: user.id, userName: user.name, userRole: user.role });
+    console.log('Bulk upload started', { rows: dataArray.length, userId: user.id, userName: user.name, userRole: user.role });
 
     const created = [];
     const errors = [];
@@ -291,10 +290,10 @@ class EnquiryService {
         const emailRaw = getField(data, 'email');
         const status = getField(data, 'status');
 
-        logger.debug('Processing row', { row: i + 1, name, mobile: mobileRaw, course });
+        console.log('Processing row', { row: i + 1, name, mobile: mobileRaw, course });
 
         if (!name || !mobileRaw || !course) {
-          logger.warn('Row skipped - missing required fields', { row: i + 1 });
+          console.warn('Row skipped - missing required fields', { row: i + 1 });
           errors.push({ row: i + 1, error: 'Missing required fields (name, mobile, course)' });
           continue;
         }
@@ -303,7 +302,7 @@ class EnquiryService {
         const mobile = mobileRaw;
 
         if (!mobile || !mobile.match(/^[0-9]{10}$/)) {
-          logger.warn('Row skipped - invalid mobile', { row: i + 1, mobile: mobileRaw });
+          console.warn('Row skipped - invalid mobile', { row: i + 1, mobile: mobileRaw });
           errors.push({ row: i + 1, error: 'Invalid mobile number (must be 10 digits)' });
           continue;
         }
@@ -311,7 +310,7 @@ class EnquiryService {
         // Check for duplicate mobile number
         const existingEnquiry = await Enquiry.findOne({ mobile });
         if (existingEnquiry) {
-          logger.warn('Row skipped - duplicate mobile number', { row: i + 1, mobile });
+          console.warn('Row skipped - duplicate mobile number', { row: i + 1, mobile });
           errors.push({ row: i + 1, error: `Duplicate mobile number: ${mobile} already exists` });
           continue;
         }
@@ -330,7 +329,7 @@ class EnquiryService {
           if (!email || email === '') email = null;
         }
 
-        logger.debug('Creating enquiry in DB', { row: i + 1, assignedTo });
+        console.log('Creating enquiry in DB', { row: i + 1, assignedTo });
         const enquiry = await Enquiry.create({
           name: name.trim(),
           mobile,
@@ -340,16 +339,16 @@ class EnquiryService {
           assignedTo: assignedTo,
           createdBy: user.id
         });
-        logger.debug('Enquiry created', { row: i + 1, enquiryId: enquiry._id.toString() });
+        console.log('Enquiry created', { row: i + 1, enquiryId: enquiry._id.toString() });
 
         created.push(enquiry);
       } catch (err) {
-        logger.error('Row processing error', { row: i + 1, error: err.message });
+        console.error('Row processing error', { row: i + 1, error: err.message });
         errors.push({ row: i + 1, error: err.message });
       }
     }
 
-    logger.info('Bulk upload completed', { created: created.length, errors: errors.length, assignedTo });
+    console.log('Bulk upload completed', { created: created.length, errors: errors.length, assignedTo });
     return {
       successCount: created.length,
       failedCount: errors.length,
@@ -402,66 +401,66 @@ class EnquiryService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
-    
-    switch(filterType) {
+
+    switch (filterType) {
       case 'all':
         // Show all enquiries except NOT_INTERESTED
         return enquiries.filter(enquiry => enquiry.status !== ENQUIRY_STATUSES.NOT_INTERESTED);
-        
+
       case 'new':
         // Show enquiries created today (any status)
         return enquiries.filter(enquiry => {
           if (!enquiry.createdAt) return false;
-          
+
           // Convert both dates to UTC to avoid timezone issues
           const createdDate = new Date(enquiry.createdAt);
           const todayUTC = new Date();
           todayUTC.setUTCHours(0, 0, 0, 0);
-          
+
           // Check if created date is today (in UTC)
           const createdUTC = new Date(createdDate);
           createdUTC.setUTCHours(0, 0, 0, 0);
-          
+
           return createdUTC.getTime() === todayUTC.getTime();
         });
-        
+
       case 'today_followups':
         // followUpDate == today, exclude ADMITTED status
         return enquiries.filter(enquiry => {
           if (!enquiry.followUpDate) return false;
-          
+
           // Exclude ADMITTED enquiries
           if (enquiry.status === ENQUIRY_STATUSES.ADMITTED) return false;
-          
+
           // Convert both dates to UTC to avoid timezone issues
           const followUpDate = new Date(enquiry.followUpDate);
           const todayUTC = new Date();
           todayUTC.setUTCHours(0, 0, 0, 0);
-          
+
           // Check if follow-up date is today (in UTC)
           const followUpUTC = new Date(followUpDate);
           followUpUTC.setUTCHours(0, 0, 0, 0);
-          
+
           return followUpUTC.getTime() === todayUTC.getTime();
         });
-        
+
       case 'pending_followups':
         // Include if: followUpDate < today, followUpDate is null, created today AND no action
         // Exclude: status = NOT_INTERESTED, status = ADMITTED
         return enquiries.filter(enquiry => {
           // Exclude NOT_INTERESTED and ADMITTED enquiries
           if (enquiry.status === ENQUIRY_STATUSES.NOT_INTERESTED || enquiry.status === ENQUIRY_STATUSES.ADMITTED) return false;
-          
+
           // Include if followUpDate < today (overdue)
           if (enquiry.followUpDate) {
             const followUpDate = new Date(enquiry.followUpDate);
             followUpDate.setHours(0, 0, 0, 0);
             if (followUpDate < today) return true;
           }
-          
+
           // Include if followUpDate is null
           if (!enquiry.followUpDate) return true;
-          
+
           // Include if created today AND no action taken
           if (enquiry.createdAt) {
             const createdDate = new Date(enquiry.createdAt);
@@ -469,55 +468,55 @@ class EnquiryService {
               // Check if no action was taken on same day (excluding creation)
               const hasActionToday = enquiry.statusHistory?.some(entry => {
                 const actionDate = new Date(entry.changedAt);
-                return actionDate.toDateString() === createdDate.toDateString() && 
-                       entry.note !== 'Enquiry created' && 
-                       entry.note !== 'Enquiry created via website' && 
-                       entry.note !== 'Enquiry created via bulk upload';
+                return actionDate.toDateString() === createdDate.toDateString() &&
+                  entry.note !== 'Enquiry created' &&
+                  entry.note !== 'Enquiry created via website' &&
+                  entry.note !== 'Enquiry created via bulk upload';
               });
-              
+
               if (!hasActionToday) return true;
             }
           }
-          
+
           return false;
         });
-        
+
       case 'contacted':
         // status = CONTACTED
         return enquiries.filter(enquiry => enquiry.status === ENQUIRY_STATUSES.CONTACTED);
-        
+
       case 'not_interested':
         // status = NOT_INTERESTED
         return enquiries.filter(enquiry => enquiry.status === ENQUIRY_STATUSES.NOT_INTERESTED);
-        
+
       case 'upcoming_followups':
         // followUpDate >= today, exclude converted/admitted statuses
         return enquiries.filter(enquiry => {
           if (!enquiry.followUpDate) return false;
-          
+
           // Exclude converted/admitted enquiries
           if (enquiry.status === ENQUIRY_STATUSES.CONVERTED || enquiry.status === ENQUIRY_STATUSES.ADMITTED) return false;
-          
+
           // Convert both dates to UTC to avoid timezone issues
           const followUpDate = new Date(enquiry.followUpDate);
           const todayUTC = new Date();
           todayUTC.setUTCHours(0, 0, 0, 0);
-          
+
           // Check if follow-up date is today or in the future (in UTC)
           const followUpUTC = new Date(followUpDate);
           followUpUTC.setUTCHours(0, 0, 0, 0);
-          
+
           if (followUpUTC.getTime() < todayUTC.getTime()) return false;
-          
+
           // If daysAhead parameter is provided, check if follow-up is within that range
           const daysAhead = parseInt(query.daysAhead) || 30; // Default 30 days
           const maxDateUTC = new Date(todayUTC);
           maxDateUTC.setDate(maxDateUTC.getDate() + daysAhead);
           maxDateUTC.setUTCHours(0, 0, 0, 0);
-          
+
           return followUpUTC.getTime() <= maxDateUTC.getTime();
         }).sort((a, b) => new Date(a.followUpDate) - new Date(b.followUpDate)); // Sort by earliest first
-        
+
       default:
         return enquiries;
     }

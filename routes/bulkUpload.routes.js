@@ -1,7 +1,6 @@
 const express = require('express');
 const multer = require('multer');
 const router = express.Router();
-const logger = require('../utils/logger');
 
 const { bulkUploadController } = require('../controllers');
 const {
@@ -13,7 +12,7 @@ const { ROLES } = require('../config/constants');
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
-    logger.debug('File filter checking', { filename: file.originalname, mimetype: file.mimetype });
+    console.log('File filter checking', { filename: file.originalname, mimetype: file.mimetype });
     const allowedTypes = [
       'text/csv',
       'application/vnd.ms-excel',
@@ -25,10 +24,10 @@ const upload = multer({
     const hasAllowedExt = allowedExts.some(ext => file.originalname.toLowerCase().endsWith(ext));
 
     if (hasAllowedMime || hasAllowedExt) {
-      logger.debug('File accepted', { filename: file.originalname });
+      console.log('File accepted', { filename: file.originalname });
       cb(null, true);
     } else {
-      logger.warn('File rejected - invalid type', { filename: file.originalname, mimetype: file.mimetype });
+      console.warn('File rejected - invalid type', { filename: file.originalname, mimetype: file.mimetype });
       cb(new Error('Only Excel (.xlsx, .xls) or CSV (.csv) files are allowed'), false);
     }
   },
@@ -42,7 +41,7 @@ router.use(authMiddleware);
 router.post(
   '/enquiries',
   (req, res, next) => {
-    logger.debug('POST /upload/enquiries route hit');
+    console.log('POST /upload/enquiries route hit');
     next();
   },
   roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
@@ -50,6 +49,6 @@ router.post(
   bulkUploadController.uploadEnquiries
 );
 
-logger.info('Bulk upload routes loaded');
+console.log('Bulk upload routes loaded');
 
 module.exports = router;

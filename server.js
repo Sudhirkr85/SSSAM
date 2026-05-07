@@ -2,7 +2,6 @@ require('dotenv').config();
 
 const connectDB = require('./config/database');
 const app = require('./app');
-const logger = require('./utils/logger');
 const http = require('http');
 const { initializeFirebase } = require('./config/firebase');
 const schedulerService = require('./services/schedulerService');
@@ -24,13 +23,13 @@ const startServer = async () => {
     schedulerService.start();
     
     server.listen(PORT, () => {
-      logger.info(`Server running in ${NODE_ENV} mode on port ${PORT}`, { port: PORT, env: NODE_ENV });
-      logger.info(`API available at http://localhost:${PORT}/api`, { url: `http://localhost:${PORT}/api` });
-      logger.info(`Firebase notifications initialized`);
-      logger.info(`Scheduler service started - Daily notifications at 10:30 AM, 4:00 PM, 4:30 PM`);
+      console.log(`Server running in ${NODE_ENV} mode on port ${PORT}`, { port: PORT, env: NODE_ENV });
+      console.log(`API available at http://localhost:${PORT}/api`, { url: `http://localhost:${PORT}/api` });
+      console.log(`Firebase notifications initialized`);
+      console.log(`Scheduler service started - Daily notifications at 10:30 AM, 4:00 PM, 4:30 PM`);
     });
   } catch (error) {
-    logger.error('Failed to start server:', error);
+    console.error('Failed to start server:', error);
     process.exit(1);
   }
 };
