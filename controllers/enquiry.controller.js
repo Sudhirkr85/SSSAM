@@ -51,6 +51,40 @@ class EnquiryController {
       req.user
     );
     
+    // Send notification for significant status changes
+    if (req.body.status && (req.body.status === 'CONVERTED' || req.body.status === 'LOST')) {
+      const statusText = req.body.status === 'CONVERTED' ? 'Converted to Admission' : 'Marked as Lost';
+      const notificationData = {
+        type: 'enquiry_status_changed',
+        enquiryId: enquiry._id.toString(),
+        status: req.body.status,
+      };
+      
+      // Notify assigned counselor
+      if (enquiry.assignedTo) {
+        await firebaseService.sendNotification(
+          enquiry.assignedTo._id,
+          `Enquiry ${statusText}`,
+          `${enquiry.name} - ${enquiry.mobile} has been ${statusText.toLowerCase()}`,
+          notificationData
+        );
+      } else {
+        // If unassigned, notify all counselors
+        await firebaseService.sendToAllCounselors(
+          `Enquiry ${statusText}`,
+          `${enquiry.name} - ${enquiry.mobile} has been ${statusText.toLowerCase()}`,
+          notificationData
+        );
+      }
+      
+      // Notify admin
+      await firebaseService.sendToAdmin(
+        `Enquiry ${statusText}`,
+        `${enquiry.name} - ${enquiry.mobile} has been ${statusText.toLowerCase()}`,
+        notificationData
+      );
+    }
+    
     return successResponse(
       res,
       { enquiry },

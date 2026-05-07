@@ -13,6 +13,14 @@ class SchedulerService {
   }
 
   scheduleReminders() {
+    // Daily at 10:00 AM - Good morning message
+    cron.schedule('0 10 * * *', async () => {
+      console.log('Running 10:00 AM good morning message...');
+      await this.sendGoodMorningMessage();
+    }, {
+      timezone: 'Asia/Kolkata',
+    });
+
     // Daily at 10:30 AM
     cron.schedule('30 10 * * *', async () => {
       console.log('Running 10:30 AM reminders...');
@@ -172,6 +180,26 @@ class SchedulerService {
       console.log(`Follow-up reminders sent: ${enquiries.length}`);
     } catch (error) {
       console.error('Follow-up reminder error:', error);
+    }
+  }
+
+  async sendGoodMorningMessage() {
+    try {
+      const users = await User.find({ 
+        role: { $in: [ROLES.ADMIN, ROLES.COUNSELOR] } 
+      });
+
+      for (const user of users) {
+        const title = `Good Morning ${user.name}`;
+        const body = 'Have a productive day ahead! Check your dashboard for pending tasks and follow-ups.';
+        const data = { type: 'good_morning' };
+
+        await firebaseService.sendNotification(user._id, title, body, data);
+      }
+
+      console.log(`Good morning messages sent to ${users.length} users`);
+    } catch (error) {
+      console.error('Good morning message error:', error);
     }
   }
 
