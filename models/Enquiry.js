@@ -150,7 +150,7 @@ enquirySchema.pre('save', function (next) {
 });
 
 enquirySchema.index({ name: 'text', mobile: 'text', email: 'text' });
-enquirySchema.index({ mobile: 1 }, { unique: true });
+enquirySchema.index({ mobile: 1 });
 enquirySchema.index({ mobile: 1, course: 1 });
 enquirySchema.index({ status: 1 });
 enquirySchema.index({ assignedTo: 1 });

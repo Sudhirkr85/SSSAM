@@ -155,7 +155,6 @@ class EnquiryService {
     } = data;
     let { followUpDate } = data;
 
-
     const enquiry = await Enquiry.findById(enquiryId);
     if (!enquiry) throw new AppError('Enquiry not found', 404);
 
