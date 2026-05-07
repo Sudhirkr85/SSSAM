@@ -147,6 +147,21 @@ class AdmissionService {
       ];
     }
 
+    // Date range filters (createdAt)
+    if (query.dateFrom || query.dateTo) {
+      filter.createdAt = {};
+      if (query.dateFrom) {
+        const dateFrom = new Date(query.dateFrom);
+        dateFrom.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = dateFrom;
+      }
+      if (query.dateTo) {
+        const dateTo = new Date(query.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = dateTo;
+      }
+    }
+
     const [admissions, totalCount] = await Promise.all([
       Admission.find(filter)
         .populate('counselorId', 'name email')

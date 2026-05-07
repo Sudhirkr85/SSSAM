@@ -138,7 +138,8 @@ class EnquiryController {
 
   // GET /enquiries/walkin-brought-by - Get walk-in enquiries by brought by data
   getWalkInBroughtByData = catchAsync(async (req, res) => {
-    const result = await enquiryService.getWalkInBroughtByData();
+    const { dateFrom, dateTo } = req.query;
+    const result = await enquiryService.getWalkInBroughtByData(dateFrom, dateTo);
     
     return successResponse(
       res,

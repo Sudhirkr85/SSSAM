@@ -577,9 +577,32 @@ class EnquiryService {
     return filter;
   }
 
-  async getWalkInBroughtByData() {
+  async getWalkInBroughtByData(dateFrom, dateTo) {
+    // Build date filter if provided
+    const dateFilter = {};
+    if (dateFrom || dateTo) {
+      dateFilter.createdAt = {};
+      if (dateFrom) {
+        const startDate = new Date(dateFrom);
+        startDate.setHours(0, 0, 0, 0);
+        dateFilter.createdAt.$gte = startDate;
+      }
+      if (dateTo) {
+        const endDate = new Date(dateTo);
+        endDate.setHours(23, 59, 59, 999);
+        dateFilter.createdAt.$lte = endDate;
+      }
+    }
+
     // Aggregate enquiries by walkInBroughtBy
-    const result = await Enquiry.aggregate([
+    const pipeline = [];
+    
+    // Add date filter if provided
+    if (Object.keys(dateFilter).length > 0) {
+      pipeline.push({ $match: dateFilter });
+    }
+    
+    pipeline.push(
       {
         $group: {
           _id: '$walkInBroughtBy',
@@ -595,7 +618,9 @@ class EnquiryService {
       {
         $sort: { count: -1 }
       }
-    ]);
+    );
+
+    const result = await Enquiry.aggregate(pipeline);
 
     // Format the response
     const summary = result.map(item => ({
@@ -605,7 +630,9 @@ class EnquiryService {
     }));
 
     // Calculate totals
-    const totalEnquiries = await Enquiry.countDocuments();
+    const totalEnquiries = Object.keys(dateFilter).length > 0 
+      ? await Enquiry.countDocuments(dateFilter)
+      : await Enquiry.countDocuments();
     const withWalkInBroughtBy = result.reduce((sum, item) => sum + item.count, 0);
     const withoutWalkInBroughtBy = totalEnquiries - withWalkInBroughtBy;
 
@@ -613,7 +640,8 @@ class EnquiryService {
       summary,
       totalEnquiries,
       withWalkInBroughtBy,
-      withoutWalkInBroughtBy
+      withoutWalkInBroughtBy,
+      dateRange: Object.keys(dateFilter).length > 0 ? { dateFrom, dateTo } : null
     };
   }
 }
