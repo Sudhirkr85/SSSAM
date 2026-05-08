@@ -136,6 +136,11 @@ class EnquiryController {
     );
   });
 
+  deleteEnquiry = catchAsync(async (req, res) => {
+    const result = await enquiryService.deleteEnquiry(req.params.id, req.user);
+    return successResponse(res, result, 'Enquiry deleted successfully');
+  });
+
   // GET /enquiries/walkin-brought-by - Get walk-in enquiries by brought by data
   getWalkInBroughtByData = catchAsync(async (req, res) => {
     const { dateFrom, dateTo } = req.query;

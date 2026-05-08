@@ -80,4 +80,13 @@ router.put(
   enquiryController.assignEnquiry
 );
 
+// DELETE /enquiries/:id - Delete enquiry (admin only)
+router.delete(
+  '/:id',
+  roleMiddleware(ROLES.ADMIN),
+  enquiryIdParamValidation,
+  validateRequest,
+  enquiryController.deleteEnquiry
+);
+
 module.exports = router;

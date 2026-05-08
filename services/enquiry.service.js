@@ -577,6 +577,22 @@ class EnquiryService {
     return filter;
   }
 
+  async deleteEnquiry(enquiryId, user) {
+    const enquiry = await Enquiry.findById(enquiryId);
+    if (!enquiry) {
+      throw new AppError('Enquiry not found', 404);
+    }
+
+    // Prevent deletion if enquiry is already admitted
+    if (enquiry.status === ENQUIRY_STATUSES.ADMITTED) {
+      throw new AppError('Cannot delete an admitted enquiry. Remove the admission first.', 400);
+    }
+
+    await Enquiry.findByIdAndDelete(enquiryId);
+
+    return { id: enquiryId, message: 'Enquiry deleted successfully' };
+  }
+
   async getWalkInBroughtByData(dateFrom, dateTo) {
     // Build date filter if provided
     const dateFilter = {};
