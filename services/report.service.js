@@ -68,7 +68,7 @@ class ReportService {
     ]);
 
     const enquiriesConverted = await Enquiry.countDocuments({
-      status: ENQUIRY_STATUSES.CONVERTED,
+      status: ENQUIRY_STATUSES.ADMITTED,
       ...convertedDateFilter
     });
 
@@ -93,7 +93,7 @@ class ReportService {
     const convertedBySource = await Enquiry.aggregate([
       {
         $match: { 
-          status: ENQUIRY_STATUSES.CONVERTED,
+          status: ENQUIRY_STATUSES.ADMITTED,
           ...(hasDateFilter ? convertedDateFilter : {})
         }
       },
@@ -189,6 +189,10 @@ class ReportService {
 
     const counselorStats = await Promise.all(
       counselors.map(async (counselor) => {
+        // Get mobiles of enquiries assigned to this counselor
+        const counselorEnquiries = await Enquiry.find({ assignedTo: counselor._id }).select('mobile').lean();
+        const enquiryMobiles = counselorEnquiries.map(e => e.mobile);
+
         // Get all-time stats (no date filter)
         const [
           allTimeAssignedEnquiries,
@@ -196,13 +200,13 @@ class ReportService {
           allTimeAdmissions,
           allTimePaymentsRevenue
         ] = await Promise.all([
-          Enquiry.countDocuments({ assignedTo: counselor._id }),
-          Enquiry.countDocuments({ assignedTo: counselor._id, status: ENQUIRY_STATUSES.CONVERTED }),
-          Admission.find({ counselorId: counselor._id }),
+          counselorEnquiries.length,
+          Enquiry.countDocuments({ assignedTo: counselor._id, status: ENQUIRY_STATUSES.ADMITTED }),
+          Admission.find({ mobile: { $in: enquiryMobiles } }),
           Payment.aggregate([
             { $lookup: { from: 'admissions', localField: 'admissionId', foreignField: '_id', as: 'admission' } },
             { $unwind: '$admission' },
-            { $match: { 'admission.counselorId': counselor._id, status: 'success', type: { $ne: 'refund' } } },
+            { $match: { 'admission.mobile': { $in: enquiryMobiles }, status: 'success', type: { $ne: 'refund' } } },
             { $group: { _id: null, totalRevenue: { $sum: '$amount' } } }
           ])
         ]);
@@ -227,18 +231,18 @@ class ReportService {
             }),
             Enquiry.countDocuments({
               assignedTo: counselor._id,
-              status: ENQUIRY_STATUSES.CONVERTED,
+              status: ENQUIRY_STATUSES.ADMITTED,
               updatedAt: { $gte: startDate, $lte: endDate }
             }),
             Admission.find({
-              counselorId: counselor._id,
+              mobile: { $in: enquiryMobiles },
               createdAt: { $gte: startDate, $lte: endDate }
             }),
             Payment.aggregate([
               { $match: { paymentDate: { $gte: startDate, $lte: endDate }, status: 'success', type: { $ne: 'refund' } } },
               { $lookup: { from: 'admissions', localField: 'admissionId', foreignField: '_id', as: 'admission' } },
               { $unwind: '$admission' },
-              { $match: { 'admission.counselorId': counselor._id } },
+              { $match: { 'admission.mobile': { $in: enquiryMobiles } } },
               { $group: { _id: null, totalRevenue: { $sum: '$amount' } } }
             ])
           ]);
