@@ -7,7 +7,7 @@ const { normalizeMobile } = require('../utils');
 class AdmissionService {
   // Create Admission
   async createAdmission(data, user) {
-    let { name, email, mobile, course, admissionDate, totalFees, registrationAmount, installments = [], enquiryId, initialPayment, initialPaymentMode, paymentDate } = data;
+    let { name, email, mobile, course, admissionDate, totalFees, registrationAmount, installments = [], enquiryId, initialPayment, initialPaymentMode, paymentDate, fullPaymentDueDate, paymentMethod } = data;
 
     // Normalize mobile number
     const normalizedMobile = normalizeMobile(mobile);
@@ -40,6 +40,19 @@ class AdmissionService {
     }
     if (initialPaymentMode !== undefined) {
       data.paymentMode = initialPaymentMode;
+    }
+    if (paymentMethod !== undefined) {
+      data.paymentMode = paymentMethod;
+    }
+
+    // Auto-generate single installment for remaining balance when fullPaymentDueDate is provided
+    const paidAmount = registrationAmount || 0;
+    if (installments.length === 0 && fullPaymentDueDate && totalFees > paidAmount) {
+      installments = [{
+        amount: totalFees - paidAmount,
+        dueDate: fullPaymentDueDate,
+        note: 'Remaining balance'
+      }];
     }
 
     // Update enquiry status to ADMITTED (after duplicate check)
