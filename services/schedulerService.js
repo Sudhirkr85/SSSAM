@@ -5,6 +5,15 @@ const Admission = require('../models/Admission');
 const Payment = require('../models/Payment');
 const firebaseService = require('./firebaseService');
 const { ROLES } = require('../config/constants');
+const { 
+  getMorningMessage, 
+  getOfficeStartMessage, 
+  getNightMessage, 
+  getPendingWorkMessage,
+  shouldSendNotification,
+  getRandomInterval,
+  getRandomStaffOffset
+} = require('../utils/crmNotifications');
 
 class SchedulerService {
   start() {
@@ -13,40 +22,34 @@ class SchedulerService {
   }
 
   scheduleReminders() {
-    // Daily at 10:00 AM - Good morning message
+    // Daily at 6:00 AM - Funny wake-up messages
+    cron.schedule('0 6 * * *', async () => {
+      console.log('Running 6:00 AM funny wake-up messages...');
+      await this.sendFunnyWakeUpMessages();
+    }, {
+      timezone: 'Asia/Kolkata',
+    });
+
+    // Daily at 10:00 AM - Office start message
     cron.schedule('0 10 * * *', async () => {
-      console.log('Running 10:00 AM good morning message...');
-      await this.sendGoodMorningMessage();
+      console.log('Running 10:00 AM office start message...');
+      await this.sendOfficeStartMessage();
     }, {
       timezone: 'Asia/Kolkata',
     });
 
-    // Daily at 10:30 AM
-    cron.schedule('30 10 * * *', async () => {
-      console.log('Running 10:30 AM reminders...');
-      await this.sendPaymentDueReminders();
-      await this.sendOverdueReminders();
-      await this.sendStagnantEnquiryReminders();
-      await this.sendFollowUpDateReminders();
+    // Every hour from 10 AM to 6 PM - Random pending work notifications
+    cron.schedule('0 10-18 * * *', async () => {
+      console.log('Running hourly pending work notifications...');
+      await this.sendRandomPendingWorkNotifications();
     }, {
       timezone: 'Asia/Kolkata',
     });
 
-    // Daily at 4:00 PM
-    cron.schedule('0 16 * * *', async () => {
-      console.log('Running 4:00 PM reminders...');
-      await this.sendPaymentDueReminders();
-      await this.sendOverdueReminders();
-      await this.sendStagnantEnquiryReminders();
-      await this.sendFollowUpDateReminders();
-    }, {
-      timezone: 'Asia/Kolkata',
-    });
-
-    // Daily at 4:30 PM - Pending work summary
-    cron.schedule('30 16 * * *', async () => {
-      console.log('Running 4:30 PM pending work reminders...');
-      await this.sendPendingWorkReminders();
+    // Daily at 10:00 PM - Funny sleep messages
+    cron.schedule('0 22 * * *', async () => {
+      console.log('Running 10:00 PM funny sleep messages...');
+      await this.sendFunnySleepMessages();
     }, {
       timezone: 'Asia/Kolkata',
     });
@@ -183,116 +186,198 @@ class SchedulerService {
     }
   }
 
-  async sendGoodMorningMessage() {
+  async sendFunnyWakeUpMessages() {
     try {
       const users = await User.find({ 
         role: { $in: [ROLES.ADMIN, ROLES.COUNSELOR] } 
       });
 
       for (const user of users) {
-        const title = `Good Morning ${user.name}`;
-        const body = 'Have a productive day ahead! Check your dashboard for pending tasks and follow-ups.';
-        const data = { type: 'good_morning' };
+        const message = getMorningMessage(user.name);
+        const title = '☀️ Good Morning!';
+        const body = message;
+        const data = { type: 'funny_morning' };
 
         await firebaseService.sendNotification(user._id, title, body, data);
       }
 
-      console.log(`Good morning messages sent to ${users.length} users`);
+      console.log(`Funny wake-up messages sent to ${users.length} users`);
     } catch (error) {
-      console.error('Good morning message error:', error);
+      console.error('Funny wake-up message error:', error);
     }
   }
 
-  async sendPendingWorkReminders() {
+  async sendOfficeStartMessage() {
+    try {
+      const users = await User.find({ 
+        role: { $in: [ROLES.ADMIN, ROLES.COUNSELOR] } 
+      });
+
+      for (const user of users) {
+        const message = getOfficeStartMessage(user.name);
+        const title = '💼 Office Time!';
+        const body = message;
+        const data = { type: 'office_start' };
+
+        await firebaseService.sendNotification(user._id, title, body, data);
+      }
+
+      console.log(`Office start messages sent to ${users.length} users`);
+    } catch (error) {
+      console.error('Office start message error:', error);
+    }
+  }
+
+  async sendFunnySleepMessages() {
+    try {
+      const users = await User.find({ 
+        role: { $in: [ROLES.ADMIN, ROLES.COUNSELOR] } 
+      });
+
+      for (const user of users) {
+        const message = getNightMessage(user.name);
+        const title = '🌙 Good Night!';
+        const body = message;
+        const data = { type: 'funny_night' };
+
+        await firebaseService.sendNotification(user._id, title, body, data);
+      }
+
+      console.log(`Funny sleep messages sent to ${users.length} users`);
+    } catch (error) {
+      console.error('Funny sleep message error:', error);
+    }
+  }
+
+  async sendRandomPendingWorkNotifications() {
+    try {
+      const counselors = await User.find({ role: ROLES.COUNSELOR });
+      const admins = await User.find({ role: ROLES.ADMIN });
+
+      // Process counselors
+      for (const counselor of counselors) {
+        const lastNotification = counselor.lastNotification || null;
+        
+        // Check if this counselor should receive notification now
+        if (shouldSendNotification(counselor._id.toString(), lastNotification)) {
+          await this.sendPendingWorkNotificationToUser(counselor, 'counselor');
+          
+          // Update last notification time (you'd need to add this field to User model)
+          await User.findByIdAndUpdate(counselor._id, { 
+            lastNotification: new Date() 
+          });
+        }
+      }
+
+      // Process admins
+      for (const admin of admins) {
+        const lastNotification = admin.lastNotification || null;
+        
+        if (shouldSendNotification(admin._id.toString(), lastNotification)) {
+          await this.sendPendingWorkNotificationToUser(admin, 'admin');
+          
+          await User.findByIdAndUpdate(admin._id, { 
+            lastNotification: new Date() 
+          });
+        }
+      }
+
+      console.log('Random pending work notifications processed');
+    } catch (error) {
+      console.error('Random pending work notification error:', error);
+    }
+  }
+
+  async sendPendingWorkNotificationToUser(user, userType) {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const counselors = await User.find({ role: ROLES.COUNSELOR });
-      const admins = await User.find({ role: ROLES.ADMIN });
+      let pendingItems = [];
 
-      for (const counselor of counselors) {
-        // Get counts for this counselor
-        const pendingFollowUps = await Enquiry.countDocuments({
-          assignedTo: counselor._id,
+      if (userType === 'counselor') {
+        // Get counselor-specific pending items
+        const pendingFollowUps = await Enquiry.find({
+          assignedTo: user._id,
           status: { $in: ['NEW', 'FOLLOW_UP'] },
           isDeleted: false,
-        });
+        }).limit(3);
 
-        const todayPaymentDues = await Admission.countDocuments({
-          counselorId: counselor._id,
+        const todayPaymentDues = await Admission.find({
+          counselorId: user._id,
           status: 'ACTIVE',
           nextDueDate: {
             $gte: today,
             $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
           },
-        });
+        }).limit(3);
 
-        const overdueInstallments = await Admission.countDocuments({
-          counselorId: counselor._id,
+        const overdueInstallments = await Admission.find({
+          counselorId: user._id,
           status: 'ACTIVE',
           nextDueDate: { $lt: today },
+        }).limit(3);
+
+        // Add to pending items
+        pendingFollowUps.forEach(item => {
+          pendingItems.push({ type: 'Inquiry', student: item.name, pending: 'Follow-up pending' });
         });
 
-        const stagnantCount = await Enquiry.countDocuments({
-          assignedTo: counselor._id,
-          status: 'NEW',
-          createdAt: { $lte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-          isDeleted: false,
+        todayPaymentDues.forEach(item => {
+          pendingItems.push({ type: 'Fees', student: item.studentName || 'Student', pending: 'Fee collection pending' });
         });
 
-        const totalPending = pendingFollowUps + todayPaymentDues + overdueInstallments + stagnantCount;
+        overdueInstallments.forEach(item => {
+          pendingItems.push({ type: 'Fees', student: item.studentName || 'Student', pending: 'Fee overdue' });
+        });
 
-        if (totalPending > 0) {
-          const title = 'Pending Work Summary';
-          const body = `📋 ${pendingFollowUps} follow-ups | ${todayPaymentDues} dues today | ${overdueInstallments} overdue | ${stagnantCount} stagnant`;
-          const data = { 
-            type: 'pending_summary',
-            pendingFollowUps,
-            todayPaymentDues,
-            overdueInstallments,
-            stagnantCount,
-          };
-
-          await firebaseService.sendNotification(counselor._id, title, body, data);
-        }
-      }
-
-      // Send admin summary
-      for (const admin of admins) {
-        const unassignedEnquiries = await Enquiry.countDocuments({
+      } else if (userType === 'admin') {
+        // Get admin-specific pending items
+        const unassignedEnquiries = await Enquiry.find({
           assignedTo: null,
           isDeleted: false,
-        });
+        }).limit(3);
 
-        const totalPaymentDues = await Admission.countDocuments({
+        const totalPaymentDues = await Admission.find({
           status: 'ACTIVE',
           nextDueDate: {
             $gte: today,
             $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
           },
+        }).limit(3);
+
+        unassignedEnquiries.forEach(item => {
+          pendingItems.push({ type: 'Inquiry', student: item.name, pending: 'Unassigned inquiry' });
         });
 
-        const totalOverdue = await Admission.countDocuments({
-          status: 'ACTIVE',
-          nextDueDate: { $lt: today },
+        totalPaymentDues.forEach(item => {
+          pendingItems.push({ type: 'Fees', student: item.studentName || 'Student', pending: 'Fee due today' });
         });
-
-        const title = 'Admin: Pending Work Summary';
-        const body = `📊 ${unassignedEnquiries} unassigned | ${totalPaymentDues} dues today | ${totalOverdue} overdue`;
-        const data = { 
-          type: 'admin_pending_summary',
-          unassignedEnquiries,
-          totalPaymentDues,
-          totalOverdue,
-        };
-
-        await firebaseService.sendNotification(admin._id, title, body, data);
       }
 
-      console.log('Pending work reminders sent to all users');
+      // Send random pending item notification if any exist
+      if (pendingItems.length > 0) {
+        const randomItem = pendingItems[Math.floor(Math.random() * pendingItems.length)];
+        const message = getPendingWorkMessage(
+          randomItem.type, 
+          user.name, 
+          randomItem.student, 
+          randomItem.pending
+        );
+        
+        const title = '📋 Pending Work!';
+        const body = message;
+        const data = { 
+          type: 'pending_work',
+          module: randomItem.type,
+          student: randomItem.student,
+          pending: randomItem.pending
+        };
+
+        await firebaseService.sendNotification(user._id, title, body, data);
+      }
     } catch (error) {
-      console.error('Pending work reminder error:', error);
+      console.error(`Error sending pending work notification to ${user.name}:`, error);
     }
   }
 }

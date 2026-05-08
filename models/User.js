@@ -49,7 +49,11 @@ const userSchema = new mongoose.Schema({
       type: Boolean,
       default: true
     }
-  }]
+  }],
+  lastNotification: {
+    type: Date,
+    default: null
+  }
 }, {
   timestamps: true
 });

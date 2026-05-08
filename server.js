@@ -26,7 +26,7 @@ const startServer = async () => {
       console.log(`Server running in ${NODE_ENV} mode on port ${PORT}`, { port: PORT, env: NODE_ENV });
       console.log(`API available at http://localhost:${PORT}/api`, { url: `http://localhost:${PORT}/api` });
       console.log(`Firebase notifications initialized`);
-      console.log(`Scheduler service started - Daily notifications at 10:30 AM, 4:00 PM, 4:30 PM`);
+      console.log(`Scheduler service started - Daily notifications at 6:00 AM (funny wake-up), 10:00 AM (office start), hourly random pending work (10 AM-6 PM), 10:00 PM (funny sleep)`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
