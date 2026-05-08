@@ -135,7 +135,7 @@ class AdmissionService {
     };
   }
 
-  // List Admissions - sorted by upcoming installment
+  // List Admissions - with sorting support
   async listAdmissions(query, user) {
     const page = parseInt(query.page) || PAGINATION.DEFAULT_PAGE;
     const limit = Math.min(parseInt(query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
@@ -175,18 +175,16 @@ class AdmissionService {
       }
     }
 
-    const [admissions, totalCount] = await Promise.all([
-      Admission.find(filter)
-        .populate('counselorId', 'name email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Admission.countDocuments(filter)
-    ]);
+    // Get total count for pagination
+    const totalCount = await Admission.countDocuments(filter);
 
-    // Calculate totalPaid for all admissions in one aggregation
-    const admissionIds = admissions.map(a => a._id);
+    // Fetch all admissions for sorting (sort before pagination)
+    const allAdmissions = await Admission.find(filter)
+      .populate('counselorId', 'name email')
+      .lean();
+
+    // Calculate totalPaid for all admissions
+    const admissionIds = allAdmissions.map(a => a._id);
     const paymentResults = await Payment.aggregate([
       { $match: { admissionId: { $in: admissionIds } } },
       { $group: { _id: '$admissionId', totalPaid: { $sum: '$amount' } } }
@@ -195,7 +193,7 @@ class AdmissionService {
 
     // Enrich with computed fields
     const today = new Date();
-    const enrichedAdmissions = admissions.map(admission => {
+    const enrichedAdmissions = allAdmissions.map(admission => {
       const totalPaid = paymentMap.get(admission._id.toString()) || 0;
       const remainingAmount = admission.totalFees - totalPaid;
 
@@ -213,20 +211,65 @@ class AdmissionService {
       };
     });
 
-    // Sort by upcoming installment due date (nearest first, then no installment at end)
-    if (query.sortBy === 'upcomingInstallment') {
+    // Apply sorting
+    const sortBy = query.sortBy;
+    const sortOrder = query.sortOrder === 'desc' ? -1 : 1;
+
+    if (sortBy) {
       enrichedAdmissions.sort((a, b) => {
-        if (a.nextDueDate && b.nextDueDate) {
-          return new Date(a.nextDueDate) - new Date(b.nextDueDate);
+        let aValue, bValue;
+
+        switch (sortBy) {
+          case 'name':
+            aValue = a.name || '';
+            bValue = b.name || '';
+            return sortOrder * (aValue.localeCompare(bValue));
+
+          case 'totalFees':
+            aValue = a.totalFees || 0;
+            bValue = b.totalFees || 0;
+            return sortOrder * (aValue - bValue);
+
+          case 'paid':
+            aValue = a.totalPaid || 0;
+            bValue = b.totalPaid || 0;
+            return sortOrder * (aValue - bValue);
+
+          case 'remaining':
+            aValue = a.remainingAmount || 0;
+            bValue = b.remainingAmount || 0;
+            return sortOrder * (aValue - bValue);
+
+          case 'type':
+            aValue = a.paymentType || '';
+            bValue = b.paymentType || '';
+            return sortOrder * (aValue.localeCompare(bValue));
+
+          case 'nextDue':
+            if (a.nextDueDate && b.nextDueDate) {
+              return sortOrder * (new Date(a.nextDueDate) - new Date(b.nextDueDate));
+            }
+            if (a.nextDueDate) return sortOrder * -1;
+            if (b.nextDueDate) return sortOrder * 1;
+            return 0;
+
+          default:
+            // Default sort by createdAt
+            aValue = a.createdAt || new Date(0);
+            bValue = b.createdAt || new Date(0);
+            return sortOrder * (new Date(bValue) - new Date(aValue));
         }
-        if (a.nextDueDate) return -1;
-        if (b.nextDueDate) return 1;
-        return 0;
       });
+    } else {
+      // Default sort: newest first
+      enrichedAdmissions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     }
 
+    // Apply pagination after sorting
+    const paginatedAdmissions = enrichedAdmissions.slice(skip, skip + limit);
+
     return {
-      admissions: enrichedAdmissions,
+      admissions: paginatedAdmissions,
       pagination: {
         page,
         limit,
