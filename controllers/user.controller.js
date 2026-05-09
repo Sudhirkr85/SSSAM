@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { User } = require('../models');
 const { successResponse } = require('../utils/responseHelper');
 const catchAsync = require('../utils/catchAsync');
@@ -13,6 +14,33 @@ class UserController {
       res,
       { users: counselors },
       'Counselors retrieved successfully'
+    );
+  });
+
+  getUserById = catchAsync(async (req, res) => {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
+    const user = await User.findById(id)
+      .select('-password -fcmTokens');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    return successResponse(
+      res,
+      { user },
+      'User retrieved successfully'
     );
   });
 }

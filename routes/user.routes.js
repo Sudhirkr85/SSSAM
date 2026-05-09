@@ -13,4 +13,11 @@ router.get(
   userController.getCounselors
 );
 
+// GET /api/users/:id - Protected
+router.get(
+  '/:id',
+  authMiddleware,
+  userController.getUserById
+);
+
 module.exports = router;
