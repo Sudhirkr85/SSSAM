@@ -4,7 +4,8 @@ const connectDB = require('./config/database');
 const app = require('./app');
 const http = require('http');
 const { initializeFirebase } = require('./config/firebase');
-const schedulerService = require('./services/schedulerService');
+const SchedulerService = require('./services/schedulerService');
+const schedulerService = new SchedulerService();
 
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';

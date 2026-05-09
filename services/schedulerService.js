@@ -16,6 +16,10 @@ const {
 } = require('../utils/crmNotifications');
 
 class SchedulerService {
+  constructor() {
+    this.lastNotificationHour = null;
+  }
+
   start() {
     this.scheduleReminders();
     console.log('Scheduler service started');
@@ -251,38 +255,103 @@ class SchedulerService {
 
   async sendRandomPendingWorkNotifications() {
     try {
+      // Add a lock to prevent concurrent execution
+      const lockKey = 'pending_work_notifications_lock';
+      const now = new Date();
+      const currentHour = now.getHours();
+      
+      // Check if we already ran this in the current hour
+      if (this.lastNotificationHour === currentHour) {
+        console.log('Pending work notifications already sent this hour, skipping...');
+        return;
+      }
+      
+      this.lastNotificationHour = currentHour;
+
       const counselors = await User.find({ role: ROLES.COUNSELOR });
       const admins = await User.find({ role: ROLES.ADMIN });
+      
+      console.log(`Debug: Found ${counselors.length} counselors and ${admins.length} admins`);
+
+      // Track notifications sent in this batch to avoid duplicates
+      const notificationsSent = new Set();
 
       // Process counselors
       for (const counselor of counselors) {
         const lastNotification = counselor.lastNotification || null;
+        const userKey = `counselor_${counselor._id.toString()}`;
         
-        // Check if this counselor should receive notification now
-        if (shouldSendNotification(counselor._id.toString(), lastNotification)) {
+        // Check if this counselor should receive notification now and hasn't been notified in this batch
+        const shouldSend = shouldSendNotification(counselor._id.toString(), lastNotification);
+        console.log(`Debug: Counselor ${counselor._id.toString()} shouldSend: ${shouldSend}, alreadySent: ${notificationsSent.has(userKey)}`);
+        if (shouldSend && !notificationsSent.has(userKey)) {
           await this.sendPendingWorkNotificationToUser(counselor, 'counselor');
           
-          // Update last notification time (you'd need to add this field to User model)
+          // Update last notification time
           await User.findByIdAndUpdate(counselor._id, { 
             lastNotification: new Date() 
           });
+          
+          // Mark as sent in this batch
+          notificationsSent.add(userKey);
         }
       }
 
       // Process admins
       for (const admin of admins) {
         const lastNotification = admin.lastNotification || null;
+        const userKey = `admin_${admin._id.toString()}`;
         
-        if (shouldSendNotification(admin._id.toString(), lastNotification)) {
+        if (shouldSendNotification(admin._id.toString(), lastNotification) && !notificationsSent.has(userKey)) {
           await this.sendPendingWorkNotificationToUser(admin, 'admin');
           
           await User.findByIdAndUpdate(admin._id, { 
             lastNotification: new Date() 
           });
+          
+          notificationsSent.add(userKey);
         }
       }
 
-      console.log('Random pending work notifications processed');
+      console.log(`Random pending work notifications processed. Sent to ${notificationsSent.size} users.`);
+      console.log(`Debug: Found ${counselors.length} counselors and ${admins.length} admins`);
+    } catch (error) {
+      console.error('Random pending work notification error:', error);
+    }
+  }
+
+  // Test method to bypass time restrictions
+  async sendRandomPendingWorkNotificationsTest() {
+    try {
+      const counselors = await User.find({ role: ROLES.COUNSELOR });
+      const admins = await User.find({ role: ROLES.ADMIN });
+      
+      console.log(`Debug: Found ${counselors.length} counselors and ${admins.length} admins`);
+
+      // Track notifications sent in this batch to avoid duplicates
+      const notificationsSent = new Set();
+
+      // Process counselors
+      for (const counselor of counselors) {
+        const userKey = `counselor_${counselor._id.toString()}`;
+        
+        if (!notificationsSent.has(userKey)) {
+          await this.sendPendingWorkNotificationToUser(counselor, 'counselor');
+          notificationsSent.add(userKey);
+        }
+      }
+
+      // Process admins
+      for (const admin of admins) {
+        const userKey = `admin_${admin._id.toString()}`;
+        
+        if (!notificationsSent.has(userKey)) {
+          await this.sendPendingWorkNotificationToUser(admin, 'admin');
+          notificationsSent.add(userKey);
+        }
+      }
+
+      console.log(`Random pending work notifications processed. Sent to ${notificationsSent.size} users.`);
     } catch (error) {
       console.error('Random pending work notification error:', error);
     }
@@ -299,13 +368,12 @@ class SchedulerService {
         // Get counselor-specific pending items
         const pendingFollowUps = await Enquiry.find({
           assignedTo: user._id,
-          status: { $in: ['NEW', 'FOLLOW_UP'] },
-          isDeleted: false,
+          status: { $in: ['CONTACTED', 'INTERESTED'] },
         }).limit(3);
 
         const todayPaymentDues = await Admission.find({
           counselorId: user._id,
-          status: 'ACTIVE',
+          status: 'active',
           nextDueDate: {
             $gte: today,
             $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
@@ -314,7 +382,7 @@ class SchedulerService {
 
         const overdueInstallments = await Admission.find({
           counselorId: user._id,
-          status: 'ACTIVE',
+          status: 'active',
           nextDueDate: { $lt: today },
         }).limit(3);
 
@@ -335,11 +403,10 @@ class SchedulerService {
         // Get admin-specific pending items
         const unassignedEnquiries = await Enquiry.find({
           assignedTo: null,
-          isDeleted: false,
         }).limit(3);
 
         const totalPaymentDues = await Admission.find({
-          status: 'ACTIVE',
+          status: 'active',
           nextDueDate: {
             $gte: today,
             $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
@@ -382,4 +449,4 @@ class SchedulerService {
   }
 }
 
-module.exports = new SchedulerService();
+module.exports = SchedulerService;
