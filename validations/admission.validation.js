@@ -64,12 +64,7 @@ const createAdmissionValidation = [
     .optional()
     .isIn(Object.values(PAYMENT_MODES))
     .withMessage(`Payment method must be one of: ${Object.values(PAYMENT_MODES).join(', ')}`),
-  body('fullPaymentDueDate')
-    .optional()
-    .isISO8601()
-    .withMessage('Please provide a valid full payment due date')
-    .toDate(),
-  body('installments')
+    body('installments')
     .optional()
     .isArray()
     .withMessage('Installments must be an array'),
