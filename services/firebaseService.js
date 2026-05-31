@@ -67,10 +67,17 @@ class FirebaseService {
         return { success: false, message: 'No valid FCM tokens' };
       }
 
+      // Deduplicate tokens by token string to prevent duplicate notifications on the same device
+      const uniqueTokensMap = new Map();
+      validTokens.forEach(t => {
+        uniqueTokensMap.set(t.token, t);
+      });
+      const uniqueValidTokens = Array.from(uniqueTokensMap.values());
+
       const messaging = getMessaging();
       const invalidTokens = [];
       
-      const promises = validTokens.map(async (tokenObj) => {
+      const promises = uniqueValidTokens.map(async (tokenObj) => {
         try {
           await messaging.send({
             token: tokenObj.token,
@@ -147,6 +154,12 @@ class FirebaseService {
     try {
       const user = await User.findById(userId);
       if (!user) return { success: false, message: 'User not found' };
+
+      // Remove this token from any other users to prevent cross-account duplicate delivery
+      await User.updateMany(
+        { _id: { $ne: userId }, 'fcmTokens.token': token },
+        { $pull: { fcmTokens: { token: token } } }
+      );
 
       const existingToken = user.fcmTokens?.find(t => t.token === token);
       if (existingToken) {

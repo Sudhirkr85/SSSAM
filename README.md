@@ -271,3 +271,10 @@ npm start
    - No payment types, statuses, refund tracking
    - Notes can describe payment type ("initial", "full", "refund")
    - **Overdue installment checking** available
+
+8. **Smart CRM Notification Engine (FCM & Schedulers)**:
+   - **FCM Token Deduplication**: Enforces unique token association in the database by removing FCM registration keys from any old user profiles upon new registrations, preventing cross-profile duplicate delivery.
+   - **Send-Time Deduplication**: Filters recipient FCM token arrays to ensure each push payload is sent exactly once per distinct device token in parallel streams.
+   - **10:00 AM Daily Reminders**: Dispatches comprehensive alerts including today's follow-ups, payment due collections, overdue alerts, and stagnant enquiries.
+   - **Hourly Counselor Reminders**: Sweeps and queries pending leads (`CONTACTED`, `INTERESTED` or `FOLLOW_UP` dates) and outstanding payment installments to generate high-priority dashboard notifications.
+   - **Fun/Engaging Vibes**: Prompts users at 6:00 AM (funny wake-up), 10:00 AM (office startup), and 10:00 PM (funny sleep) with custom Hinglish templates.

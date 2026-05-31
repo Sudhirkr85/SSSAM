@@ -34,10 +34,14 @@ class SchedulerService {
       timezone: 'Asia/Kolkata',
     });
 
-    // Daily at 10:00 AM - Office start message
+    // Daily at 10:00 AM - Office start message & daily reminders
     cron.schedule('0 10 * * *', async () => {
-      console.log('Running 10:00 AM office start message...');
+      console.log('Running 10:00 AM office start message and daily reminders...');
       await this.sendOfficeStartMessage();
+      await this.sendFollowUpDateReminders();
+      await this.sendPaymentDueReminders();
+      await this.sendOverdueReminders();
+      await this.sendStagnantEnquiryReminders();
     }, {
       timezone: 'Asia/Kolkata',
     });
@@ -63,13 +67,19 @@ class SchedulerService {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
       const admissions = await Admission.find({
-        status: 'ACTIVE',
-        nextDueDate: {
-          $gte: today,
-          $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-        },
+        status: 'active',
+        installments: {
+          $elemMatch: {
+            status: 'PENDING',
+            dueDate: {
+              $gte: today,
+              $lt: tomorrow,
+            }
+          }
+        }
       }).populate('counselorId');
 
       for (const admission of admissions) {
@@ -95,15 +105,27 @@ class SchedulerService {
       today.setHours(0, 0, 0, 0);
 
       const overdueAdmissions = await Admission.find({
-        status: 'ACTIVE',
-        nextDueDate: { $lt: today },
+        status: 'active',
+        installments: {
+          $elemMatch: {
+            status: 'PENDING',
+            dueDate: { $lt: today }
+          }
+        }
       }).populate('counselorId');
 
       const admins = await User.find({ role: ROLES.ADMIN });
       const adminIds = admins.map(a => a._id);
 
       for (const admission of overdueAdmissions) {
-        const daysLate = Math.floor((today - admission.nextDueDate) / (1000 * 60 * 60 * 24));
+        // Calculate days late based on earliest pending overdue installment
+        const pendingOverdue = admission.installments.filter(
+          inst => inst.status === 'PENDING' && new Date(inst.dueDate) < today
+        );
+        const earliestDueDate = pendingOverdue.length > 0 
+          ? new Date(Math.min(...pendingOverdue.map(inst => new Date(inst.dueDate))))
+          : today;
+        const daysLate = Math.floor((today - earliestDueDate) / (1000 * 60 * 60 * 24));
         
         const title = 'Overdue Payment Alert';
         const body = `${admission.course} - ${daysLate} days overdue. Please follow up.`;
@@ -133,7 +155,6 @@ class SchedulerService {
       const stagnantEnquiries = await Enquiry.find({
         status: 'NEW',
         createdAt: { $lte: twentyFourHoursAgo },
-        isDeleted: false,
       });
 
       if (stagnantEnquiries.length > 0) {
@@ -157,34 +178,59 @@ class SchedulerService {
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
-      const enquiries = await Enquiry.find({
-        followUpDate: {
-          $gte: today,
-          $lt: tomorrow,
-        },
-        isDeleted: false,
-      }).populate('assignedTo');
+      const counselors = await User.find({ role: ROLES.COUNSELOR });
 
-      for (const enquiry of enquiries) {
-        const title = 'Follow-up Reminder';
-        const body = `Today: Follow up with ${enquiry.name} (${enquiry.mobile}) for ${enquiry.courseInterested}`;
-        const data = { 
-          type: 'followup_reminder', 
-          enquiryId: enquiry._id.toString(),
-          name: enquiry.name,
-          mobile: enquiry.mobile,
-          course: enquiry.courseInterested,
-        };
+      for (const counselor of counselors) {
+        // Count today's follow-ups for this counselor
+        const todayCount = await Enquiry.countDocuments({
+          assignedTo: counselor._id,
+          followUpDate: {
+            $gte: today,
+            $lt: tomorrow,
+          }
+        });
 
-        if (enquiry.assignedTo) {
-          await firebaseService.sendNotification(enquiry.assignedTo._id, title, body, data);
-        } else {
-          // If unassigned, send to all counselors
-          await firebaseService.sendToAllCounselors(title, body, data);
+        // Count overdue follow-ups for this counselor
+        const overdueCount = await Enquiry.countDocuments({
+          assignedTo: counselor._id,
+          status: { $in: ['CONTACTED', 'INTERESTED'] },
+          followUpDate: { $lt: today }
+        });
+
+        if (todayCount > 0 || overdueCount > 0) {
+          const title = '📋 Daily Follow-up Summary';
+          const body = `${counselor.name}, you have ${todayCount} follow-up(s) today and ${overdueCount} overdue follow-up(s) pending.`;
+          
+          await firebaseService.sendNotification(
+            counselor._id,
+            title,
+            body,
+            { type: 'followup_summary', todayCount, overdueCount }
+          );
         }
       }
 
-      console.log(`Follow-up reminders sent: ${enquiries.length}`);
+      // Also notify admins of unassigned follow-ups
+      const unassignedTodayCount = await Enquiry.countDocuments({
+        assignedTo: null,
+        followUpDate: {
+          $gte: today,
+          $lt: tomorrow,
+        }
+      });
+      const unassignedOverdueCount = await Enquiry.countDocuments({
+        assignedTo: null,
+        status: { $in: ['CONTACTED', 'INTERESTED'] },
+        followUpDate: { $lt: today }
+      });
+
+      if (unassignedTodayCount > 0 || unassignedOverdueCount > 0) {
+        const title = '📋 Unassigned Follow-up Alert';
+        const body = `There are ${unassignedTodayCount} unassigned follow-ups today and ${unassignedOverdueCount} overdue pending.`;
+        await firebaseService.sendToAdmin(title, body, { type: 'unassigned_followup_summary' });
+      }
+
+      console.log('Follow-up summary reminders dispatched.');
     } catch (error) {
       console.error('Follow-up reminder error:', error);
     }
@@ -368,22 +414,32 @@ class SchedulerService {
         // Get counselor-specific pending items
         const pendingFollowUps = await Enquiry.find({
           assignedTo: user._id,
-          status: { $in: ['CONTACTED', 'INTERESTED'] },
+          status: { $in: ['CONTACTED', 'INTERESTED', 'FOLLOW_UP'] },
         }).limit(3);
 
         const todayPaymentDues = await Admission.find({
           counselorId: user._id,
           status: 'active',
-          nextDueDate: {
-            $gte: today,
-            $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-          },
+          installments: {
+            $elemMatch: {
+              status: 'PENDING',
+              dueDate: {
+                $gte: today,
+                $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+              }
+            }
+          }
         }).limit(3);
 
         const overdueInstallments = await Admission.find({
           counselorId: user._id,
           status: 'active',
-          nextDueDate: { $lt: today },
+          installments: {
+            $elemMatch: {
+              status: 'PENDING',
+              dueDate: { $lt: today }
+            }
+          }
         }).limit(3);
 
         // Add to pending items
@@ -392,11 +448,11 @@ class SchedulerService {
         });
 
         todayPaymentDues.forEach(item => {
-          pendingItems.push({ type: 'Fees', student: item.studentName || 'Student', pending: 'Fee collection pending' });
+          pendingItems.push({ type: 'Fees', student: item.name || 'Student', pending: 'Fee collection pending' });
         });
 
         overdueInstallments.forEach(item => {
-          pendingItems.push({ type: 'Fees', student: item.studentName || 'Student', pending: 'Fee overdue' });
+          pendingItems.push({ type: 'Fees', student: item.name || 'Student', pending: 'Fee overdue' });
         });
 
       } else if (userType === 'admin') {
@@ -407,10 +463,15 @@ class SchedulerService {
 
         const totalPaymentDues = await Admission.find({
           status: 'active',
-          nextDueDate: {
-            $gte: today,
-            $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-          },
+          installments: {
+            $elemMatch: {
+              status: 'PENDING',
+              dueDate: {
+                $gte: today,
+                $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+              }
+            }
+          }
         }).limit(3);
 
         unassignedEnquiries.forEach(item => {
@@ -418,7 +479,7 @@ class SchedulerService {
         });
 
         totalPaymentDues.forEach(item => {
-          pendingItems.push({ type: 'Fees', student: item.studentName || 'Student', pending: 'Fee due today' });
+          pendingItems.push({ type: 'Fees', student: item.name || 'Student', pending: 'Fee due today' });
         });
       }
 
