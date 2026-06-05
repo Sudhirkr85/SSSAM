@@ -301,14 +301,14 @@ class SchedulerService {
 
   async sendRandomPendingWorkNotifications() {
     try {
-      // Add a lock to prevent concurrent execution
-      const lockKey = 'pending_work_notifications_lock';
       const now = new Date();
-      const currentHour = now.getHours();
+      // Timezone-safe hour for Asia/Kolkata
+      const options = { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false };
+      const currentHour = parseInt(now.toLocaleString('en-US', options));
       
       // Check if we already ran this in the current hour
       if (this.lastNotificationHour === currentHour) {
-        console.log('Pending work notifications already sent this hour, skipping...');
+        console.log(`[Scheduler] Pending work notifications already processed in hour ${currentHour}, skipping...`);
         return;
       }
       
@@ -317,9 +317,11 @@ class SchedulerService {
       const counselors = await User.find({ role: ROLES.COUNSELOR });
       const admins = await User.find({ role: ROLES.ADMIN });
       
-      console.log(`Debug: Found ${counselors.length} counselors and ${admins.length} admins`);
+      console.log(`[Scheduler] Checking pending work notifications. Found ${counselors.length} counselors and ${admins.length} admins.`);
 
-      // Track notifications sent in this batch to avoid duplicates
+      // Track notifications sent in this batch
+      let totalAttempted = 0;
+      let totalSuccessful = 0;
       const notificationsSent = new Set();
 
       // Process counselors
@@ -327,19 +329,23 @@ class SchedulerService {
         const lastNotification = counselor.lastNotification || null;
         const userKey = `counselor_${counselor._id.toString()}`;
         
-        // Check if this counselor should receive notification now and hasn't been notified in this batch
         const shouldSend = shouldSendNotification(counselor._id.toString(), lastNotification);
-        console.log(`Debug: Counselor ${counselor._id.toString()} shouldSend: ${shouldSend}, alreadySent: ${notificationsSent.has(userKey)}`);
         if (shouldSend && !notificationsSent.has(userKey)) {
-          await this.sendPendingWorkNotificationToUser(counselor, 'counselor');
+          totalAttempted++;
+          const result = await this.sendPendingWorkNotificationToUser(counselor, 'counselor');
           
-          // Update last notification time
-          await User.findByIdAndUpdate(counselor._id, { 
-            lastNotification: new Date() 
-          });
-          
-          // Mark as sent in this batch
-          notificationsSent.add(userKey);
+          if (result && result.success && result.sent > 0) {
+            totalSuccessful++;
+            // Update last notification time only on successful send
+            await User.findByIdAndUpdate(counselor._id, { 
+              lastNotification: new Date() 
+            });
+            notificationsSent.add(userKey);
+            console.log(`[Scheduler] Successfully sent pending work notification to counselor ${counselor.name}.`);
+          } else {
+            const reason = result ? (result.message || result.error) : 'Unknown error';
+            console.log(`[Scheduler] Failed to send to counselor ${counselor.name}. Reason: ${reason}`);
+          }
         }
       }
 
@@ -349,20 +355,26 @@ class SchedulerService {
         const userKey = `admin_${admin._id.toString()}`;
         
         if (shouldSendNotification(admin._id.toString(), lastNotification) && !notificationsSent.has(userKey)) {
-          await this.sendPendingWorkNotificationToUser(admin, 'admin');
+          totalAttempted++;
+          const result = await this.sendPendingWorkNotificationToUser(admin, 'admin');
           
-          await User.findByIdAndUpdate(admin._id, { 
-            lastNotification: new Date() 
-          });
-          
-          notificationsSent.add(userKey);
+          if (result && result.success && result.sent > 0) {
+            totalSuccessful++;
+            await User.findByIdAndUpdate(admin._id, { 
+              lastNotification: new Date() 
+            });
+            notificationsSent.add(userKey);
+            console.log(`[Scheduler] Successfully sent pending work notification to admin ${admin.name}.`);
+          } else {
+            const reason = result ? (result.message || result.error) : 'Unknown error';
+            console.log(`[Scheduler] Failed to send to admin ${admin.name}. Reason: ${reason}`);
+          }
         }
       }
 
-      console.log(`Random pending work notifications processed. Sent to ${notificationsSent.size} users.`);
-      console.log(`Debug: Found ${counselors.length} counselors and ${admins.length} admins`);
+      console.log(`[Scheduler] Random pending work notifications batch finished. Attempted: ${totalAttempted}, Delivered: ${totalSuccessful}.`);
     } catch (error) {
-      console.error('Random pending work notification error:', error);
+      console.error('[Scheduler] Random pending work notification error:', error);
     }
   }
 
@@ -502,10 +514,12 @@ class SchedulerService {
           pending: randomItem.pending
         };
 
-        await firebaseService.sendNotification(user._id, title, body, data);
+        return await firebaseService.sendNotification(user._id, title, body, data);
       }
+      return { success: false, message: 'No pending items found' };
     } catch (error) {
       console.error(`Error sending pending work notification to ${user.name}:`, error);
+      return { success: false, error: error.message };
     }
   }
 }

@@ -170,23 +170,42 @@ function getRandomStaffOffset(staff_id) {
  */
 function getNextNotificationTime(staff_id, last_notification_time = null) {
   const now = new Date();
-  const current_hour = now.getHours();
+  
+  // Convert now to Asia/Kolkata hour
+  const options = { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false };
+  const current_hour = parseInt(now.toLocaleString('en-US', options));
   
   // Only send between 10 AM - 7 PM
   if (current_hour < 10 || current_hour >= 19) {
     return null;
   }
   
-  // If no previous notification, send after random offset
-  if (!last_notification_time) {
-    return new Date(now.getTime() + getRandomStaffOffset(staff_id));
+  let last_time = last_notification_time;
+  if (last_time) {
+    const lastDate = new Date(last_time);
+    // Compare dates in Asia/Kolkata timezone to see if it is a different day
+    const lastDateString = lastDate.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', dateStyle: 'short' });
+    const nowDateString = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', dateStyle: 'short' });
+    
+    if (lastDateString !== nowDateString) {
+      // If it was yesterday or before, treat it as null (new day start)
+      last_time = null;
+    }
+  }
+  
+  // If no previous notification today, send after random offset from start of window (10:00 AM)
+  if (!last_time) {
+    const todayStart = new Date(now);
+    todayStart.setHours(10, 0, 0, 0);
+    return new Date(todayStart.getTime() + getRandomStaffOffset(staff_id));
   }
   
   // Calculate next notification time with random interval
-  const next_time = new Date(last_notification_time.getTime() + getRandomInterval());
+  const next_time = new Date(last_time.getTime() + getRandomInterval());
   
-  // Make sure it's still within 10 AM - 7 PM window
-  if (next_time.getHours() >= 19 || next_time.getHours() < 10) {
+  // Check next_time hour in Asia/Kolkata
+  const nextHour = parseInt(next_time.toLocaleString('en-US', options));
+  if (nextHour >= 19 || nextHour < 10) {
     return null;
   }
   
@@ -198,9 +217,17 @@ function getNextNotificationTime(staff_id, last_notification_time = null) {
  */
 function shouldSendNotification(staff_id, last_notification_time = null) {
   const next_time = getNextNotificationTime(staff_id, last_notification_time);
-  if (!next_time) return false;
-  
   const now = new Date();
+  
+  console.log(`[Scheduler Debug] Staff ID: ${staff_id}`);
+  console.log(`  - Last sent:   ${last_notification_time ? new Date(last_notification_time).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }) : 'Never'}`);
+  console.log(`  - Next send:   ${next_time ? next_time.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }) : 'None (Outside active hours 10am-7pm)'}`);
+  if (next_time) {
+    console.log(`  - Current:     ${now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}`);
+    console.log(`  - Send now?    ${now >= next_time}`);
+  }
+  
+  if (!next_time) return false;
   return now >= next_time;
 }
 
