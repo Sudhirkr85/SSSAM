@@ -7,6 +7,7 @@ const bulkUploadRoutes = require('./bulkUpload.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const notificationRoutes = require('./notification.routes');
 const userRoutes = require('./user.routes');
+const attendanceRoutes = require('./attendance.routes');
 
 module.exports = {
   authRoutes,
@@ -17,5 +18,6 @@ module.exports = {
   bulkUploadRoutes,
   dashboardRoutes,
   notificationRoutes,
-  userRoutes
+  userRoutes,
+  attendanceRoutes
 };

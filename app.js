@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { errorHandler } = require('./middleware');
-const { authRoutes, enquiryRoutes, admissionRoutes, paymentRoutes, reportRoutes, bulkUploadRoutes, dashboardRoutes, notificationRoutes, userRoutes } = require('./routes');
+const { authRoutes, enquiryRoutes, admissionRoutes, paymentRoutes, reportRoutes, bulkUploadRoutes, dashboardRoutes, notificationRoutes, userRoutes, attendanceRoutes } = require('./routes');
 
 const app = express();
 
@@ -26,6 +26,7 @@ app.use('/api/bulk-upload', bulkUploadRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({

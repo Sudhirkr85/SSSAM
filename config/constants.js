@@ -1,6 +1,7 @@
 const ROLES = {
   ADMIN: 'admin',
-  COUNSELOR: 'counselor'
+  COUNSELOR: 'counselor',
+  EMPLOYEE: 'employee'
 };
 
 const ENQUIRY_STATUSES = {
