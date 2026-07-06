@@ -201,12 +201,8 @@ class ReportService {
     const registrationPaid = paymentsInPeriod.filter(p => p.resolvedType === 'REGISTRATION').reduce((sum, p) => sum + p.amount, 0);
     const installmentPaid = paymentsInPeriod.filter(p => p.resolvedType === 'INSTALLMENT').reduce((sum, p) => sum + p.amount, 0);
 
-    // Total Baaki (Due) — sum of all pending installment amounts as of now (all-time expected fees minus all-time collected net)
-    const allTimeFeesExpected = allAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
-    const allTimePaidGross = processedPayments.reduce((sum, p) => sum + p.amount, 0);
-    const allTimeRefunds = allRefunds.reduce((sum, r) => sum + r.amount, 0);
-    const allTimePaidNet = allTimePaidGross - allTimeRefunds;
-    const totalPending = Math.max(0, allTimeFeesExpected - allTimePaidNet);
+    // Total Baaki (Due) — calculated for the filtered period's admissions
+    const totalPending = Math.max(0, totalFeesExpected - totalPaidNet);
 
     // Period payments populated for list view (include resolved type)
     const enrichedPaymentsInPeriod = paymentsInPeriod.map(p => ({

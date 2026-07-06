@@ -28,10 +28,17 @@ const updateOfficeSettings = catchAsync(async (req, res) => {
   return successResponse(res, settings, 'Office settings updated successfully');
 });
 
+const updateAttendanceRecord = catchAsync(async (req, res) => {
+  const { userId, date, punchInTime, punchOutTime, status } = req.body;
+  const result = await attendanceService.updateAttendanceRecord(userId, date, punchInTime, punchOutTime, status);
+  return successResponse(res, result, 'Attendance record updated successfully');
+});
+
 module.exports = {
   punch,
   getPersonalHistory,
   getAdminHistory,
   getOfficeSettings,
-  updateOfficeSettings
+  updateOfficeSettings,
+  updateAttendanceRecord
 };

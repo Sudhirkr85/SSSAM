@@ -42,4 +42,11 @@ router.put(
   attendanceController.updateOfficeSettings
 );
 
+// PUT /api/attendance/record
+router.put(
+  '/record',
+  roleMiddleware(ROLES.ADMIN),
+  attendanceController.updateAttendanceRecord
+);
+
 module.exports = router;

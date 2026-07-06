@@ -13,6 +13,14 @@ router.get(
   userController.getCounselors
 );
 
+// GET /api/users - Admin only
+router.get(
+  '/',
+  authMiddleware,
+  roleMiddleware(ROLES.ADMIN),
+  userController.listAllUsers
+);
+
 // GET /api/users/:id - Protected
 router.get(
   '/:id',

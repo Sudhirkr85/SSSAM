@@ -8,8 +8,8 @@ const attendanceSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['IN', 'OUT'],
-    required: [true, 'Punch type (IN/OUT) is required']
+    enum: ['IN', 'OUT', 'LEAVE', 'WEEKOFF'],
+    required: [true, 'Punch type (IN/OUT/LEAVE/WEEKOFF) is required']
   },
   timestamp: {
     type: Date,
@@ -17,15 +17,15 @@ const attendanceSchema = new mongoose.Schema({
   },
   latitude: {
     type: Number,
-    required: [true, 'Latitude is required']
+    required: function() { return this.type === 'IN' || this.type === 'OUT'; }
   },
   longitude: {
     type: Number,
-    required: [true, 'Longitude is required']
+    required: function() { return this.type === 'IN' || this.type === 'OUT'; }
   },
   distanceFromOffice: {
     type: Number,
-    required: [true, 'Distance from office is required']
+    required: function() { return this.type === 'IN' || this.type === 'OUT'; }
   }
 }, {
   timestamps: true

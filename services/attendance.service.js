@@ -78,7 +78,11 @@ class AttendanceService {
       timestamp: { $gte: startOfToday, $lte: endOfToday }
     }).sort({ timestamp: -1 });
 
-    const punchType = (!lastAttendance || lastAttendance.type === 'OUT') ? 'IN' : 'OUT';
+    if (lastAttendance && lastAttendance.type === 'OUT') {
+      throw new AppError('You have already completed your Punch In and Punch Out session for today. You cannot punch again today.', 400);
+    }
+
+    const punchType = (!lastAttendance) ? 'IN' : 'OUT';
 
     const attendance = await Attendance.create({
       userId,
@@ -199,12 +203,155 @@ class AttendanceService {
     }));
   }
 
-  // Get Date Range helpers
+  // Update dynamic record values for User on a specific date (Admin only)
+  async updateAttendanceRecord(userId, dateStr, punchInTime, punchOutTime, specialStatus) {
+    if (!userId || !dateStr) {
+      throw new AppError('User ID and date are required', 400);
+    }
+
+    // Prevent updates to Admin records
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      throw new AppError('User not found', 404);
+    }
+    if (targetUser.role === 'admin') {
+      throw new AppError('Cannot update or modify attendance logs for Administrator accounts', 403);
+    }
+
+    const startOfDay = new Date(dateStr);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date(dateStr);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Get current settings (for distance default placeholder)
+    const settings = await this.getOfficeSettings();
+
+    // Clear any conflicting IN/OUT/LEAVE/WEEKOFF records if we are setting a special status
+    if (specialStatus === 'LEAVE' || specialStatus === 'WEEKOFF') {
+      await Attendance.deleteMany({
+        userId,
+        timestamp: { $gte: startOfDay, $lte: endOfDay }
+      });
+
+      // Create special log entry
+      await Attendance.create({
+        userId,
+        type: specialStatus,
+        timestamp: new Date(dateStr + 'T12:00:00'),
+        latitude: settings.latitude,
+        longitude: settings.longitude,
+        distanceFromOffice: 0
+      });
+
+      return { message: `${specialStatus} status registered successfully` };
+    }
+
+    if (specialStatus === 'ABSENT') {
+      // Completely clear all records for this employee on this date
+      await Attendance.deleteMany({
+        userId,
+        timestamp: { $gte: startOfDay, $lte: endOfDay }
+      });
+      return { message: 'Attendance status cleared successfully' };
+    }
+
+    // Otherwise, clear any LEAVE/WEEKOFF conflict if we are modifying IN/OUT
+    await Attendance.deleteMany({
+      userId,
+      type: { $in: ['LEAVE', 'WEEKOFF'] },
+      timestamp: { $gte: startOfDay, $lte: endOfDay }
+    });
+
+    // 1. Process Punch IN
+    if (punchInTime) {
+      const [inHrs, inMins] = punchInTime.split(':').map(Number);
+      const inTimestamp = new Date(dateStr);
+      inTimestamp.setHours(inHrs, inMins, 0, 0);
+
+      // Find or create IN record for that date
+      let inRecord = await Attendance.findOne({
+        userId,
+        type: 'IN',
+        timestamp: { $gte: startOfDay, $lte: endOfDay }
+      });
+
+      if (inRecord) {
+        inRecord.timestamp = inTimestamp;
+        await inRecord.save();
+      } else {
+        await Attendance.create({
+          userId,
+          type: 'IN',
+          timestamp: inTimestamp,
+          latitude: settings.latitude,
+          longitude: settings.longitude,
+          distanceFromOffice: 0
+        });
+      }
+    } else {
+      // If punchInTime is empty, delete any existing IN record for today
+      await Attendance.deleteOne({
+        userId,
+        type: 'IN',
+        timestamp: { $gte: startOfDay, $lte: endOfDay }
+      });
+    }
+
+    // 2. Process Punch OUT
+    if (punchOutTime) {
+      const [outHrs, outMins] = punchOutTime.split(':').map(Number);
+      const outTimestamp = new Date(dateStr);
+      outTimestamp.setHours(outHrs, outMins, 0, 0);
+
+      // Find or create OUT record for that date
+      let outRecord = await Attendance.findOne({
+        userId,
+        type: 'OUT',
+        timestamp: { $gte: startOfDay, $lte: endOfDay }
+      });
+
+      if (outRecord) {
+        outRecord.timestamp = outTimestamp;
+        await outRecord.save();
+      } else {
+        await Attendance.create({
+          userId,
+          type: 'OUT',
+          timestamp: outTimestamp,
+          latitude: settings.latitude,
+          longitude: settings.longitude,
+          distanceFromOffice: 0
+        });
+      }
+    } else {
+      // If punchOutTime is empty, delete any existing OUT record for today
+      await Attendance.deleteOne({
+        userId,
+        type: 'OUT',
+        timestamp: { $gte: startOfDay, $lte: endOfDay }
+      });
+    }
+
+    return { message: 'Attendance record updated successfully' };
+  }
+
   _getDateRange(range) {
     const today = new Date();
     let start, end;
 
-    if (range === 'thisMonth') {
+    if (range && range.startsWith('custom_')) {
+      const parts = range.replace('custom_', '').split('-');
+      if (parts.length === 2) {
+        const year = parseInt(parts[0]);
+        const month = parseInt(parts[1]) - 1; // 0-based month index
+        start = new Date(year, month, 1);
+        
+        // Find last day of target month
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        end = new Date(year, month, lastDay, 23, 59, 59, 999);
+      }
+    } else if (range === 'thisMonth') {
       start = new Date(today.getFullYear(), today.getMonth(), 1);
       end = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
     } else if (range === 'thisYear') {
@@ -240,12 +387,15 @@ class AttendanceService {
 
       let inLog = null;
       let outLog = null;
+      let specialStatus = null;
 
       dayLogs.forEach(log => {
         if (log.type === 'IN') {
           if (!inLog) inLog = log; // capture first IN
         } else if (log.type === 'OUT') {
           outLog = log; // capture last OUT
+        } else if (log.type === 'LEAVE' || log.type === 'WEEKOFF') {
+          specialStatus = log.type;
         }
       });
 
@@ -265,7 +415,8 @@ class AttendanceService {
         punchIn: inLog ? inLog.timestamp : null,
         punchOut: outLog ? outLog.timestamp : null,
         totalHours,
-        hoursValue
+        hoursValue,
+        specialStatus
       });
     }
 
@@ -300,12 +451,15 @@ class AttendanceService {
       
       let inLog = null;
       let outLog = null;
+      let specialStatus = null; // 'LEAVE' or 'WEEKOFF'
 
       group.logs.forEach(log => {
         if (log.type === 'IN') {
           if (!inLog) inLog = log;
         } else if (log.type === 'OUT') {
           outLog = log;
+        } else if (log.type === 'LEAVE' || log.type === 'WEEKOFF') {
+          specialStatus = log.type;
         }
       });
 
@@ -328,7 +482,8 @@ class AttendanceService {
         punchIn: inLog ? inLog.timestamp : null,
         punchOut: outLog ? outLog.timestamp : null,
         totalHours,
-        hoursValue
+        hoursValue,
+        specialStatus
       });
     }
 

@@ -17,6 +17,18 @@ class UserController {
     );
   });
 
+  listAllUsers = catchAsync(async (req, res) => {
+    const users = await User.find({})
+      .select('_id name email role')
+      .sort({ name: 1 });
+
+    return successResponse(
+      res,
+      { users },
+      'Users retrieved successfully'
+    );
+  });
+
   getUserById = catchAsync(async (req, res) => {
     const { id } = req.params;
 
