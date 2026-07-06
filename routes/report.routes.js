@@ -56,4 +56,10 @@ router.get(
   reportController.getCounselorStudents
 );
 
+router.get(
+  '/summary',
+  roleMiddleware(ROLES.ADMIN),
+  reportController.getSummary
+);
+
 module.exports = router;

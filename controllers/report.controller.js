@@ -45,6 +45,17 @@ class ReportController {
     const students = await reportService.getCounselorStudents(counselorId);
     return successResponse(res, students, 'Counselor students retrieved successfully');
   });
+
+  getSummary = catchAsync(async (req, res) => {
+    const { startDate, endDate } = req.query;
+    const [admissions, fees, courses, counselors] = await Promise.all([
+      reportService.getAdmissionsReport('monthly', startDate, endDate),
+      reportService.getFeesReport('monthly', startDate, endDate),
+      reportService.getCoursePerformance(startDate, endDate),
+      reportService.getCounselorPerformance('monthly', startDate, endDate)
+    ]);
+    return successResponse(res, { admissions, fees, courses, counselors }, 'Summary report generated successfully');
+  });
 }
 
 module.exports = new ReportController();
