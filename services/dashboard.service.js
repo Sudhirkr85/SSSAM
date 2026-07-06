@@ -380,8 +380,8 @@ class DashboardService {
       Admission.find(admissionFilter).lean()
     ]);
 
-    // Calculate active students (admissions with status 'active')
-    const activeStudents = allAdmissions.filter(a => a.status === 'active').length;
+    // Calculate active students (admissions with status 'ACTIVE')
+    const activeStudents = allAdmissions.filter(a => a.status === 'ACTIVE').length;
 
     // Calculate revenue stats
     const admissionIds = allAdmissions.map(a => a._id);

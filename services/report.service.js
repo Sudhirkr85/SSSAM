@@ -462,6 +462,7 @@ class ReportService {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const admissions = await Admission.find({
+      status: 'ACTIVE',
       installments: { $exists: true, $ne: [] }
     }).select('name mobile course installments');
 
