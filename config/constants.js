@@ -43,8 +43,9 @@ const PAYMENT_TYPES = {
 };
 
 const PAYMENT_RECORD_TYPES = {
+  REGISTRATION: 'REGISTRATION',
+  INSTALLMENT: 'INSTALLMENT',
   INITIAL: 'initial',
-  INSTALLMENT: 'installment',
   FULL: 'full',
   REFUND: 'refund'
 };

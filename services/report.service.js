@@ -146,23 +146,69 @@ class ReportService {
     const { startDate, endDate } = this.getDateRange(range, customStartDate, customEndDate);
     const hasDateFilter = startDate && endDate;
 
-    // Build date filters dynamically - use createdAt for more reliable filtering
-    const paymentDateFilter = hasDateFilter ? { createdAt: { $gte: startDate, $lte: endDate } } : {};
-
-    // If date filter is applied, get all data for that period, otherwise get all-time data
-    const [admissions, paymentsInPeriod, revenueAgg] = await Promise.all([
-      hasDateFilter ? Admission.find({ createdAt: { $gte: startDate, $lte: endDate } }) : Admission.find(),
-      Payment.find(paymentDateFilter).populate('createdBy', 'name'),
-      hasDateFilter
-        ? Payment.aggregate([{ $match: { ...paymentDateFilter, status: 'success', type: { $ne: 'refund' } } }, { $group: { _id: null, total: { $sum: '$amount' } } }])
-        : Payment.aggregate([{ $match: { status: 'success', type: { $ne: 'refund' } } }, { $group: { _id: null, total: { $sum: '$amount' } } }])
+    // Fetch all admissions and payments to perform chronological fallback calculation
+    const [allAdmissions, allPayments, allRefunds] = await Promise.all([
+      Admission.find().lean(),
+      Payment.find({ status: 'success', type: { $ne: 'refund' } }).sort({ paymentDate: 1, createdAt: 1 }).lean(),
+      Payment.find({ status: 'success', type: 'refund' }).sort({ paymentDate: 1, createdAt: 1 }).lean()
     ]);
 
-    const totalFeesExpected = admissions.reduce((sum, a) => sum + a.totalFees, 0);
-    const totalRevenueCollected = revenueAgg.length > 0 ? revenueAgg[0].total : 0;
-    const totalPaid = totalRevenueCollected; // Use the same revenue calculation
-    const totalPending = totalFeesExpected - totalPaid;
-    const revenueInPeriod = totalRevenueCollected; // Same as totalPaid when filtered
+    // Apply chronological fallback logic for legacy payments
+    const admissionSeen = {};
+    const processedPayments = allPayments.map(payment => {
+      const admIdStr = payment.admissionId.toString();
+      let resolvedType = payment.type;
+
+      if (resolvedType === 'REGISTRATION' || resolvedType === 'INSTALLMENT') {
+        if (resolvedType === 'REGISTRATION') {
+          admissionSeen[admIdStr] = true;
+        }
+      } else {
+        // Missing or legacy type (e.g. 'initial', 'installment' in legacy, or undefined)
+        if (!admissionSeen[admIdStr]) {
+          resolvedType = 'REGISTRATION';
+          admissionSeen[admIdStr] = true;
+        } else {
+          resolvedType = 'INSTALLMENT';
+        }
+      }
+
+      return {
+        ...payment,
+        resolvedType
+      };
+    });
+
+    // Filter payments and refunds within range if filter is active
+    let paymentsInPeriod = processedPayments;
+    let refundsInPeriod = allRefunds;
+    let admissionsInPeriod = allAdmissions;
+
+    if (hasDateFilter) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      paymentsInPeriod = processedPayments.filter(p => new Date(p.paymentDate) >= start && new Date(p.paymentDate) <= end);
+      refundsInPeriod = allRefunds.filter(r => new Date(r.paymentDate) >= start && new Date(r.paymentDate) <= end);
+      admissionsInPeriod = allAdmissions.filter(a => new Date(a.createdAt) >= start && new Date(a.createdAt) <= end);
+    }
+
+    // Calculations
+    const totalFeesExpected = admissionsInPeriod.reduce((sum, a) => sum + a.totalFees, 0);
+    const totalPaid = paymentsInPeriod.reduce((sum, p) => sum + p.amount, 0);
+    const registrationPaid = paymentsInPeriod.filter(p => p.resolvedType === 'REGISTRATION').reduce((sum, p) => sum + p.amount, 0);
+    const installmentPaid = paymentsInPeriod.filter(p => p.resolvedType === 'INSTALLMENT').reduce((sum, p) => sum + p.amount, 0);
+    const totalRefunds = refundsInPeriod.reduce((sum, r) => sum + r.amount, 0);
+
+    // Total Baaki (Due) — sum of all pending installment amounts as of now (all-time expected fees minus all-time collected)
+    const allTimeFeesExpected = allAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
+    const allTimePaid = processedPayments.reduce((sum, p) => sum + p.amount, 0);
+    const totalPending = Math.max(0, allTimeFeesExpected - allTimePaid);
+
+    // Period payments populated for list view (include resolved type)
+    const enrichedPaymentsInPeriod = paymentsInPeriod.map(p => ({
+      ...p,
+      type: p.resolvedType
+    }));
 
     return {
       range,
@@ -170,14 +216,17 @@ class ReportService {
       summary: {
         totalFeesExpected,
         totalPaid,
+        registrationPaid,
+        installmentPaid,
+        totalRefunds,
         totalPending,
-        totalRevenueCollected,
-        revenueInPeriod,
+        totalRevenueCollected: totalPaid,
+        revenueInPeriod: totalPaid,
         collectionRate: totalFeesExpected > 0
           ? ((totalPaid / totalFeesExpected) * 100).toFixed(2)
           : 0
       },
-      periodPayments: paymentsInPeriod
+      periodPayments: enrichedPaymentsInPeriod
     };
   }
 
@@ -319,7 +368,7 @@ class ReportService {
           _id: '$course',
           totalEnquiries: { $sum: 1 },
           converted: {
-            $sum: { $cond: [{ $eq: ['$status', ENQUIRY_STATUSES.CONVERTED] }, 1, 0] }
+            $sum: { $cond: [{ $eq: ['$status', ENQUIRY_STATUSES.ADMITTED] }, 1, 0] }
           }
         }
       },
@@ -413,7 +462,6 @@ class ReportService {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const admissions = await Admission.find({
-      paymentType: 'INSTALLMENT',
       installments: { $exists: true, $ne: [] }
     }).select('name mobile course installments');
 
@@ -466,13 +514,13 @@ class ReportService {
 
   async getCounselorStudents(counselorId) {
     // Get all enquiries assigned to this counselor
-    const enquiries = await Enquiry.find({ assignedTo: counselorId, isDeleted: false })
+    const enquiries = await Enquiry.find({ assignedTo: counselorId })
       .populate('assignedTo', 'name')
       .lean();
 
     // Get admissions by mobile numbers (since enquiryId no longer exists)
     const enquiryMobiles = enquiries.map(e => e.mobile);
-    const admissions = await Admission.find({ mobile: { $in: enquiryMobiles }, isDeleted: false })
+    const admissions = await Admission.find({ mobile: { $in: enquiryMobiles } })
       .lean();
 
     // Create a map of mobile to admission
@@ -485,7 +533,6 @@ class ReportService {
     const admissionIds = admissions.map(a => a._id);
     const payments = await Payment.find({
       admissionId: { $in: admissionIds },
-      isDeleted: false,
       status: 'success',
       type: { $ne: 'refund' }
     }).lean();

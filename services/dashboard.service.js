@@ -353,8 +353,8 @@ class DashboardService {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     // Build base filter for role-based access
-    const enquiryFilter = { isDeleted: false };
-    const admissionFilter = { isDeleted: false };
+    const enquiryFilter = {};
+    const admissionFilter = {};
     
     // Add date filter if provided
     if (dateFilter) {
@@ -389,7 +389,6 @@ class DashboardService {
     // Get all payments for these admissions
     const paymentFilter = { 
       admissionId: { $in: admissionIds },
-      isDeleted: false,
       status: 'success',
       type: { $ne: 'refund' }
     };
@@ -422,7 +421,6 @@ class DashboardService {
         {
           $match: {
             admissionId: { $in: admissionIds },
-            isDeleted: false,
             status: 'success',
             type: { $ne: 'refund' },
             paymentDate: { $gte: monthStart, $lte: monthEnd }
@@ -533,8 +531,7 @@ class DashboardService {
     // Get Hot Leads ( enquiries with HOT status, not converted)
     const hotLeadsData = await Enquiry.find({
       ...enquiryFilter,
-      status: 'HOT',
-      isDeleted: false
+      status: 'HOT'
     })
     .sort({ updatedAt: -1 })
     .limit(10)

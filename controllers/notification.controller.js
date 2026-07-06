@@ -51,7 +51,6 @@ class NotificationController {
       summary.pendingFollowUps = await Enquiry.countDocuments({
         assignedTo: userId,
         status: { $in: ['NEW', 'FOLLOW_UP'] },
-        isDeleted: false,
       });
 
       summary.todayPaymentDues = await Admission.countDocuments({
@@ -73,7 +72,6 @@ class NotificationController {
         assignedTo: userId,
         status: 'NEW',
         createdAt: { $lte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-        isDeleted: false,
       });
     } else if (userRole === 'ADMIN') {
       const Enquiry = require('../models/Enquiry');
@@ -81,7 +79,6 @@ class NotificationController {
 
       summary.unassignedEnquiries = await Enquiry.countDocuments({
         assignedTo: null,
-        isDeleted: false,
       });
 
       summary.todayPaymentDues = await Admission.countDocuments({
@@ -100,7 +97,6 @@ class NotificationController {
       summary.stagnantEnquiries = await Enquiry.countDocuments({
         status: 'NEW',
         createdAt: { $lte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-        isDeleted: false,
       });
     }
 

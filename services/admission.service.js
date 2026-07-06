@@ -99,6 +99,7 @@ class AdmissionService {
         amount: registrationAmount,
         paymentMode: data.paymentMode || PAYMENT_MODES.CASH,
         paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+        type: 'REGISTRATION',
         note: 'Registration amount',
         createdBy: user.id
       });
@@ -337,6 +338,7 @@ class AdmissionService {
       amount,
       paymentMode,
       paymentDate: paymentDate || new Date(),
+      type: 'INSTALLMENT',
       note,
       createdBy: user.id
     });
@@ -348,7 +350,7 @@ class AdmissionService {
     accumulatedPayments = payments.reduce((sum, p) => sum + p.amount, 0);
 
     // Mark installments as PAID if accumulated payments cover them
-    let remaining = accumulatedPayments;
+    let remaining = accumulatedPayments - (admission.registrationAmount || 0);
     for (const installment of admission.installments) {
       if (remaining >= installment.amount && installment.status === INSTALLMENT_STATUSES.PENDING) {
         installment.status = INSTALLMENT_STATUSES.PAID;
