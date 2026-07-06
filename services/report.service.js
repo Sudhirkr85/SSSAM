@@ -149,8 +149,8 @@ class ReportService {
     // Fetch all admissions and payments to perform chronological fallback calculation
     const [allAdmissions, allPayments, allRefunds] = await Promise.all([
       Admission.find().lean(),
-      Payment.find({ status: 'success', type: { $ne: 'refund' } }).sort({ paymentDate: 1, createdAt: 1 }).lean(),
-      Payment.find({ status: 'success', type: 'refund' }).sort({ paymentDate: 1, createdAt: 1 }).lean()
+      Payment.find({ status: { $in: ['ACTIVE', 'success'] }, type: { $ne: 'refund' } }).sort({ paymentDate: 1, createdAt: 1 }).lean(),
+      Payment.find({ status: { $in: ['ACTIVE', 'success'] }, type: 'refund' }).sort({ paymentDate: 1, createdAt: 1 }).lean()
     ]);
 
     // Apply chronological fallback logic for legacy payments
@@ -192,17 +192,21 @@ class ReportService {
       admissionsInPeriod = allAdmissions.filter(a => new Date(a.createdAt) >= start && new Date(a.createdAt) <= end);
     }
 
-    // Calculations
+    // Summary calculations
     const totalFeesExpected = admissionsInPeriod.reduce((sum, a) => sum + a.totalFees, 0);
-    const totalPaid = paymentsInPeriod.reduce((sum, p) => sum + p.amount, 0);
+    const totalPaidGross = paymentsInPeriod.reduce((sum, p) => sum + p.amount, 0);
+    const totalRefunds = refundsInPeriod.reduce((sum, r) => sum + r.amount, 0);
+    const totalPaidNet = totalPaidGross - totalRefunds;
+
     const registrationPaid = paymentsInPeriod.filter(p => p.resolvedType === 'REGISTRATION').reduce((sum, p) => sum + p.amount, 0);
     const installmentPaid = paymentsInPeriod.filter(p => p.resolvedType === 'INSTALLMENT').reduce((sum, p) => sum + p.amount, 0);
-    const totalRefunds = refundsInPeriod.reduce((sum, r) => sum + r.amount, 0);
 
-    // Total Baaki (Due) — sum of all pending installment amounts as of now (all-time expected fees minus all-time collected)
+    // Total Baaki (Due) — sum of all pending installment amounts as of now (all-time expected fees minus all-time collected net)
     const allTimeFeesExpected = allAdmissions.reduce((sum, a) => sum + a.totalFees, 0);
-    const allTimePaid = processedPayments.reduce((sum, p) => sum + p.amount, 0);
-    const totalPending = Math.max(0, allTimeFeesExpected - allTimePaid);
+    const allTimePaidGross = processedPayments.reduce((sum, p) => sum + p.amount, 0);
+    const allTimeRefunds = allRefunds.reduce((sum, r) => sum + r.amount, 0);
+    const allTimePaidNet = allTimePaidGross - allTimeRefunds;
+    const totalPending = Math.max(0, allTimeFeesExpected - allTimePaidNet);
 
     // Period payments populated for list view (include resolved type)
     const enrichedPaymentsInPeriod = paymentsInPeriod.map(p => ({
@@ -215,15 +219,15 @@ class ReportService {
       dateRange: hasDateFilter ? { startDate, endDate } : null,
       summary: {
         totalFeesExpected,
-        totalPaid,
+        totalPaid: totalPaidNet,
         registrationPaid,
         installmentPaid,
         totalRefunds,
         totalPending,
-        totalRevenueCollected: totalPaid,
-        revenueInPeriod: totalPaid,
+        totalRevenueCollected: totalPaidNet,
+        revenueInPeriod: totalPaidNet,
         collectionRate: totalFeesExpected > 0
-          ? ((totalPaid / totalFeesExpected) * 100).toFixed(2)
+          ? ((totalPaidNet / totalFeesExpected) * 100).toFixed(2)
           : 0
       },
       periodPayments: enrichedPaymentsInPeriod

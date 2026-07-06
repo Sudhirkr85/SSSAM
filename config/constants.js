@@ -51,6 +51,8 @@ const PAYMENT_RECORD_TYPES = {
 };
 
 const PAYMENT_STATUSES = {
+  ACTIVE: 'ACTIVE',
+  VOIDED: 'VOIDED',
   SUCCESS: 'success',
   PENDING: 'pending',
   FAILED: 'failed'

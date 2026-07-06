@@ -26,7 +26,14 @@ const paymentSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: Object.values(PAYMENT_STATUSES),
-    default: 'success'
+    default: 'ACTIVE'
+  },
+  voidedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  voidedAt: {
+    type: Date
   },
   paymentDate: {
     type: Date,

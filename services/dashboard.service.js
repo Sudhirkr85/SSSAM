@@ -389,21 +389,24 @@ class DashboardService {
     // Get all payments for these admissions
     const paymentFilter = { 
       admissionId: { $in: admissionIds },
-      status: 'success',
-      type: { $ne: 'refund' }
+      status: { $in: ['ACTIVE', 'success'] }
     };
 
     const [allPayments] = await Promise.all([
       Payment.find(paymentFilter).lean()
     ]);
 
-    const totalPaid = allPayments.reduce((sum, p) => sum + p.amount, 0);
+    const totalPaid = allPayments.reduce((sum, p) => {
+      return p.type === 'refund' ? sum - p.amount : sum + p.amount;
+    }, 0);
 
     // Calculate pending payments (remaining amount)
     let pendingPayments = 0;
     for (const admission of allAdmissions) {
       const admissionPayments = allPayments.filter(p => p.admissionId.toString() === admission._id.toString());
-      const paid = admissionPayments.reduce((sum, p) => sum + p.amount, 0);
+      const paid = admissionPayments.reduce((sum, p) => {
+        return p.type === 'refund' ? sum - p.amount : sum + p.amount;
+      }, 0);
       pendingPayments += (admission.totalFees - paid);
     }
 
@@ -421,15 +424,18 @@ class DashboardService {
         {
           $match: {
             admissionId: { $in: admissionIds },
-            status: 'success',
-            type: { $ne: 'refund' },
+            status: { $in: ['ACTIVE', 'success'] },
             paymentDate: { $gte: monthStart, $lte: monthEnd }
           }
         },
         {
           $group: {
             _id: null,
-            total: { $sum: '$amount' }
+            total: {
+              $sum: {
+                $cond: [ { $eq: ['$type', 'refund'] }, { $multiply: ['$amount', -1] }, '$amount' ]
+              }
+            }
           }
         }
       ]);

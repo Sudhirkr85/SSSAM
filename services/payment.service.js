@@ -146,7 +146,7 @@ class PaymentService {
 
   // Process refund for a payment
   async refundPayment(paymentId, refundData, user) {
-    const { reason, refundMode } = refundData;
+    const { reason, refundMode, note } = refundData;
     
     // Find the original payment
     const originalPayment = await Payment.findById(paymentId);
@@ -161,16 +161,17 @@ class PaymentService {
 
     // Handle old payments that may not have status field (treat undefined as 'success')
     const paymentStatus = originalPayment.status || 'success';
-    if (paymentStatus !== 'success') {
+    if (paymentStatus !== 'success' && paymentStatus !== 'ACTIVE') {
       throw new AppError('Only successful payments can be refunded', 400);
     }
 
     // Calculate total paid vs refunded for this admission
-    // Use $or to find payments with status='success' or no status field (legacy payments)
+    // Use $or to find payments with status='success', status='ACTIVE', or no status field (legacy payments)
     const allPayments = await Payment.find({
       admissionId: originalPayment.admissionId,
       $or: [
         { status: 'success' },
+        { status: 'ACTIVE' },
         { status: { $exists: false } }
       ]
     });
@@ -201,7 +202,7 @@ class PaymentService {
       paymentMode: refundMode || originalPayment.paymentMode,
       type: 'refund',
       status: 'success',
-      note: `Refund for payment #${originalPayment._id}`,
+      note: note || `Refund for payment #${originalPayment._id}`,
       createdBy: user.id,
       refundDetails: {
         reason: reason || 'No reason provided',
@@ -211,10 +212,18 @@ class PaymentService {
       }
     });
 
-    // Update admission's pending amount
+    // Update admission's pending amount & re-allocate installments
     const admission = await Admission.findById(originalPayment.admissionId);
     if (admission) {
-      // Update admission balance
+      // Find all ACTIVE payments (including the newly created refund transaction)
+      const activePayments = await Payment.find({
+        admissionId: admission._id,
+        status: { $in: ['ACTIVE', 'success'] }
+      }).sort({ paymentDate: 1 }).lean();
+
+      const admissionService = require('./admission.service');
+      admissionService._reallocateInstallments(admission, activePayments);
+      
       admission.markModified('pendingAmount');
       await admission.save();
     }

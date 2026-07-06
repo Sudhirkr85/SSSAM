@@ -21,6 +21,15 @@ class PaymentController {
     );
     return successResponse(res, result, 'Refund processed successfully');
   });
+
+  voidPayment = catchAsync(async (req, res) => {
+    const admissionService = require('../services/admission.service');
+    const result = await admissionService.voidPayment(
+      req.params.id,
+      req.user
+    );
+    return successResponse(res, result, 'Payment voided successfully');
+  });
 }
 
 module.exports = new PaymentController();

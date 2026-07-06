@@ -187,8 +187,17 @@ class AdmissionService {
     // Calculate totalPaid for all admissions
     const admissionIds = allAdmissions.map(a => a._id);
     const paymentResults = await Payment.aggregate([
-      { $match: { admissionId: { $in: admissionIds } } },
-      { $group: { _id: '$admissionId', totalPaid: { $sum: '$amount' } } }
+      { $match: { admissionId: { $in: admissionIds }, status: { $in: ['ACTIVE', 'success'] } } },
+      { 
+        $group: { 
+          _id: '$admissionId', 
+          totalPaid: { 
+            $sum: { 
+              $cond: [ { $eq: ['$type', 'refund'] }, { $multiply: ['$amount', -1] }, '$amount' ] 
+            } 
+          } 
+        } 
+      }
     ]);
     const paymentMap = new Map(paymentResults.map(r => [r._id.toString(), r.totalPaid]));
 
@@ -325,12 +334,41 @@ class AdmissionService {
     return await this.getAdmissionById(admissionId);
   }
 
+  // Helper: Reset and re-allocate installments sequentially based on active payments
+  _reallocateInstallments(admission, activePayments) {
+    for (const installment of admission.installments) {
+      installment.status = INSTALLMENT_STATUSES.PENDING;
+    }
+    const accumulatedPayments = activePayments.reduce((sum, p) => {
+      return p.type === 'refund' ? sum - p.amount : sum + p.amount;
+    }, 0);
+    let remaining = accumulatedPayments - (admission.registrationAmount || 0);
+    for (const installment of admission.installments) {
+      if (remaining >= installment.amount) {
+        installment.status = INSTALLMENT_STATUSES.PAID;
+        remaining -= installment.amount;
+      }
+    }
+  }
+
   // Record Payment
   async recordPayment(admissionId, data, user) {
     const admission = await Admission.findById(admissionId);
     if (!admission) throw new AppError('Admission not found', 404);
 
     const { amount, paymentMode, paymentDate, note } = data;
+
+    // Double-submit check: check if an ACTIVE payment already exists for same admission and amount within 30s
+    const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
+    const existingPayment = await Payment.findOne({
+      admissionId,
+      amount,
+      status: 'ACTIVE',
+      createdAt: { $gte: thirtySecondsAgo }
+    });
+    if (existingPayment) {
+      throw new AppError('Duplicate payment detected. Please wait 30 seconds before submitting the same payment again.', 400);
+    }
 
     // Create payment record
     const payment = await Payment.create({
@@ -339,29 +377,64 @@ class AdmissionService {
       paymentMode,
       paymentDate: paymentDate || new Date(),
       type: 'INSTALLMENT',
+      status: 'ACTIVE',
       note,
       createdBy: user.id
     });
 
     // Check if any pending installment can be marked as PAID
-    const totalPaid = await this._calculateTotalPaid(admissionId);
-    let accumulatedPayments = admission.registrationAmount || 0;
-    const payments = await Payment.find({ admissionId }).sort({ paymentDate: 1 }).lean();
-    accumulatedPayments = payments.reduce((sum, p) => sum + p.amount, 0);
+    const activePayments = await Payment.find({
+      admissionId,
+      status: { $in: ['ACTIVE', 'success'] }
+    }).sort({ paymentDate: 1 }).lean();
 
-    // Mark installments as PAID if accumulated payments cover them
-    let remaining = accumulatedPayments - (admission.registrationAmount || 0);
-    for (const installment of admission.installments) {
-      if (remaining >= installment.amount && installment.status === INSTALLMENT_STATUSES.PENDING) {
-        installment.status = INSTALLMENT_STATUSES.PAID;
-        remaining -= installment.amount;
-      }
-    }
+    this._reallocateInstallments(admission, activePayments);
     await admission.save();
 
     return {
       payment,
       admission: await this.getAdmissionById(admissionId)
+    };
+  }
+
+  // Void Payment
+  async voidPayment(paymentId, user) {
+    const payment = await Payment.findById(paymentId);
+    if (!payment) throw new AppError('Payment record not found', 404);
+
+    if (payment.status === 'VOIDED') {
+      throw new AppError('Payment is already voided', 400);
+    }
+
+    // Check if this payment has any ACTIVE/success refund records against it
+    const refundCount = await Payment.countDocuments({
+      'refundDetails.originalPaymentId': payment._id,
+      status: { $in: ['ACTIVE', 'success'] }
+    });
+    if (refundCount > 0) {
+      throw new AppError('This payment has already been refunded and cannot be voided. Please contact support if this is a mistake.', 400);
+    }
+
+    payment.status = 'VOIDED';
+    payment.voidedBy = user.id;
+    payment.voidedAt = new Date();
+    await payment.save();
+
+    // Re-allocate installments for the corresponding admission
+    const admission = await Admission.findById(payment.admissionId);
+    if (admission) {
+      const activePayments = await Payment.find({
+        admissionId: payment.admissionId,
+        status: { $in: ['ACTIVE', 'success'] }
+      }).sort({ paymentDate: 1 }).lean();
+
+      this._reallocateInstallments(admission, activePayments);
+      await admission.save();
+    }
+
+    return {
+      payment,
+      admission: admission ? await this.getAdmissionById(payment.admissionId) : null
     };
   }
 
@@ -449,11 +522,19 @@ class AdmissionService {
     };
   }
 
-  // Helper: Calculate total paid
   async _calculateTotalPaid(admissionId) {
     const result = await Payment.aggregate([
-      { $match: { admissionId: new mongoose.Types.ObjectId(admissionId) } },
-      { $group: { _id: null, totalPaid: { $sum: '$amount' } } }
+      { $match: { admissionId: new mongoose.Types.ObjectId(admissionId), status: { $in: ['ACTIVE', 'success'] } } },
+      { 
+        $group: { 
+          _id: null, 
+          totalPaid: { 
+            $sum: { 
+              $cond: [ { $eq: ['$type', 'refund'] }, { $multiply: ['$amount', -1] }, '$amount' ] 
+            } 
+          } 
+        } 
+      }
     ]);
     return result.length > 0 ? result[0].totalPaid : 0;
   }

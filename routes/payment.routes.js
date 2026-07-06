@@ -35,4 +35,11 @@ router.post(
   paymentController.refundPayment
 );
 
+// POST /payments/:id/void - Void a payment
+router.post(
+  '/:id/void',
+  roleMiddleware(ROLES.ADMIN),
+  paymentController.voidPayment
+);
+
 module.exports = router;
