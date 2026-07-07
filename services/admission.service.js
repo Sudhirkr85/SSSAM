@@ -177,7 +177,7 @@ class AdmissionService {
     }
 
     // Get total count for pagination
-    const totalCount = await Admission.countDocuments(filter);
+    let totalCount = await Admission.countDocuments(filter);
 
     // Fetch all admissions for sorting (sort before pagination)
     const allAdmissions = await Admission.find(filter)
@@ -203,7 +203,7 @@ class AdmissionService {
 
     // Enrich with computed fields
     const today = new Date();
-    const enrichedAdmissions = allAdmissions.map(admission => {
+    let enrichedAdmissions = allAdmissions.map(admission => {
       const totalPaid = paymentMap.get(admission._id.toString()) || 0;
       const remainingAmount = admission.totalFees - totalPaid;
 
@@ -220,6 +220,12 @@ class AdmissionService {
         nextDueDate: upcomingInstallment ? upcomingInstallment.dueDate : null
       };
     });
+
+    // Filter by pending dues if requested
+    if (query.hasDues === 'true') {
+      enrichedAdmissions = enrichedAdmissions.filter(a => a.remainingAmount > 0);
+      totalCount = enrichedAdmissions.length;
+    }
 
     // Apply sorting
     const sortBy = query.sortBy;
