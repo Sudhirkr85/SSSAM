@@ -61,7 +61,8 @@ class EnquiryService {
   async getEnquiryById(id) {
     const enquiry = await Enquiry.findById(id)
       .populate('assignedTo', 'name email')
-      .populate('createdBy', 'name email');
+      .populate('createdBy', 'name email')
+      .populate('statusHistory.changedBy', 'name email');
 
     if (!enquiry) {
       throw new AppError('Enquiry not found', 404);

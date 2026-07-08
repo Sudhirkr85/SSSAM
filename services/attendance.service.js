@@ -218,11 +218,8 @@ class AttendanceService {
       throw new AppError('Cannot update or modify attendance logs for Administrator accounts', 403);
     }
 
-    const startOfDay = new Date(dateStr);
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const endOfDay = new Date(dateStr);
-    endOfDay.setHours(23, 59, 59, 999);
+    const startOfDay = new Date(`${dateStr}T00:00:00+05:30`);
+    const endOfDay = new Date(`${dateStr}T23:59:59.999+05:30`);
 
     // Get current settings (for distance default placeholder)
     const settings = await this.getOfficeSettings();
@@ -238,10 +235,11 @@ class AttendanceService {
       await Attendance.create({
         userId,
         type: specialStatus,
-        timestamp: new Date(dateStr + 'T12:00:00'),
+        timestamp: new Date(`${dateStr}T12:00:00+05:30`),
         latitude: settings.latitude,
         longitude: settings.longitude,
-        distanceFromOffice: 0
+        distanceFromOffice: 0,
+        updatedByAdmin: true
       });
 
       return { message: `${specialStatus} status registered successfully` };
@@ -265,9 +263,7 @@ class AttendanceService {
 
     // 1. Process Punch IN
     if (punchInTime) {
-      const [inHrs, inMins] = punchInTime.split(':').map(Number);
-      const inTimestamp = new Date(dateStr);
-      inTimestamp.setHours(inHrs, inMins, 0, 0);
+      const inTimestamp = new Date(`${dateStr}T${punchInTime}:00+05:30`);
 
       // Find or create IN record for that date
       let inRecord = await Attendance.findOne({
@@ -278,6 +274,7 @@ class AttendanceService {
 
       if (inRecord) {
         inRecord.timestamp = inTimestamp;
+        inRecord.updatedByAdmin = true;
         await inRecord.save();
       } else {
         await Attendance.create({
@@ -286,7 +283,8 @@ class AttendanceService {
           timestamp: inTimestamp,
           latitude: settings.latitude,
           longitude: settings.longitude,
-          distanceFromOffice: 0
+          distanceFromOffice: 0,
+          updatedByAdmin: true
         });
       }
     } else {
@@ -300,9 +298,7 @@ class AttendanceService {
 
     // 2. Process Punch OUT
     if (punchOutTime) {
-      const [outHrs, outMins] = punchOutTime.split(':').map(Number);
-      const outTimestamp = new Date(dateStr);
-      outTimestamp.setHours(outHrs, outMins, 0, 0);
+      const outTimestamp = new Date(`${dateStr}T${punchOutTime}:00+05:30`);
 
       // Find or create OUT record for that date
       let outRecord = await Attendance.findOne({
@@ -313,6 +309,7 @@ class AttendanceService {
 
       if (outRecord) {
         outRecord.timestamp = outTimestamp;
+        outRecord.updatedByAdmin = true;
         await outRecord.save();
       } else {
         await Attendance.create({
@@ -321,7 +318,8 @@ class AttendanceService {
           timestamp: outTimestamp,
           latitude: settings.latitude,
           longitude: settings.longitude,
-          distanceFromOffice: 0
+          distanceFromOffice: 0,
+          updatedByAdmin: true
         });
       }
     } else {
@@ -344,19 +342,27 @@ class AttendanceService {
       const parts = range.replace('custom_', '').split('-');
       if (parts.length === 2) {
         const year = parseInt(parts[0]);
-        const month = parseInt(parts[1]) - 1; // 0-based month index
-        start = new Date(year, month, 1);
+        const month = parseInt(parts[1]); // 1-based index
+        const monthStr = String(month).padStart(2, '0');
+        start = new Date(`${year}-${monthStr}-01T00:00:00+05:30`);
         
         // Find last day of target month
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        end = new Date(year, month, lastDay, 23, 59, 59, 999);
+        const lastDay = new Date(year, month, 0).getDate();
+        const lastDayStr = String(lastDay).padStart(2, '0');
+        end = new Date(`${year}-${monthStr}-${lastDayStr}T23:59:59.999+05:30`);
       }
     } else if (range === 'thisMonth') {
-      start = new Date(today.getFullYear(), today.getMonth(), 1);
-      end = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+      const year = today.getFullYear();
+      const monthStr = String(today.getMonth() + 1).padStart(2, '0');
+      start = new Date(`${year}-${monthStr}-01T00:00:00+05:30`);
+      
+      const lastDay = new Date(year, today.getMonth() + 1, 0).getDate();
+      const lastDayStr = String(lastDay).padStart(2, '0');
+      end = new Date(`${year}-${monthStr}-${lastDayStr}T23:59:59.999+05:30`);
     } else if (range === 'thisYear') {
-      start = new Date(today.getFullYear(), 0, 1);
-      end = new Date(today.getFullYear(), 11, 31, 23, 59, 59, 999);
+      const year = today.getFullYear();
+      start = new Date(`${year}-01-01T00:00:00+05:30`);
+      end = new Date(`${year}-12-31T23:59:59.999+05:30`);
     } else {
       // allTime
       start = null;
@@ -368,11 +374,12 @@ class AttendanceService {
 
   // Helper: Format history logs into matched IN-OUT pairs
   _formatHistory(logs) {
-    // Group logs by Date
+    // Group logs by Date (using IST +5:30 shift)
     const grouped = {};
     
     logs.forEach(log => {
-      const dateStr = log.timestamp.toISOString().split('T')[0];
+      const istDate = new Date(log.timestamp.getTime() + 5.5 * 60 * 60 * 1000);
+      const dateStr = istDate.toISOString().split('T')[0];
       if (!grouped[dateStr]) {
         grouped[dateStr] = [];
       }
@@ -410,13 +417,16 @@ class AttendanceService {
         totalHours = `${hrs}h ${mins}m`;
       }
 
+      const updatedByAdmin = dayLogs.some(log => log.updatedByAdmin === true);
+
       result.push({
         date,
         punchIn: inLog ? inLog.timestamp : null,
         punchOut: outLog ? outLog.timestamp : null,
         totalHours,
         hoursValue,
-        specialStatus
+        specialStatus,
+        updatedByAdmin
       });
     }
 
@@ -425,12 +435,13 @@ class AttendanceService {
 
   // Helper: Format history logs with User data populated
   _formatAdminHistory(logs) {
-    // Group logs by User & Date
+    // Group logs by User & Date (using IST +5:30 shift)
     const grouped = {};
     
     logs.forEach(log => {
       const uid = log.userId?._id?.toString() || log.userId?.toString() || 'unknown';
-      const dateStr = log.timestamp.toISOString().split('T')[0];
+      const istDate = new Date(log.timestamp.getTime() + 5.5 * 60 * 60 * 1000);
+      const dateStr = istDate.toISOString().split('T')[0];
       const key = `${uid}_${dateStr}`;
       
       if (!grouped[key]) {
@@ -474,6 +485,8 @@ class AttendanceService {
         totalHours = `${hrs}h ${mins}m`;
       }
 
+      const updatedByAdmin = group.logs.some(log => log.updatedByAdmin === true);
+
       result.push({
         userId: group.userId,
         userName: group.user?.name || 'Unknown',
@@ -483,7 +496,8 @@ class AttendanceService {
         punchOut: outLog ? outLog.timestamp : null,
         totalHours,
         hoursValue,
-        specialStatus
+        specialStatus,
+        updatedByAdmin
       });
     }
 

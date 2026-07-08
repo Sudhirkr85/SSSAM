@@ -26,6 +26,10 @@ const attendanceSchema = new mongoose.Schema({
   distanceFromOffice: {
     type: Number,
     required: function() { return this.type === 'IN' || this.type === 'OUT'; }
+  },
+  updatedByAdmin: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
