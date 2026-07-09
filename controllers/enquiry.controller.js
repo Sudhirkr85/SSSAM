@@ -8,9 +8,12 @@ class EnquiryController {
     const result = await enquiryService.createEnquiry(req.body, req.user);
     
     // Send notification to all counselors and admin
+    const sourceStr = result.source ? result.source.toUpperCase().replace('_', ' ') : 'N/A';
+    const creatorName = result.createdBy ? (result.createdBy.name || 'Staff') : 'Staff';
+
     await firebaseService.sendToAdminAndCounselors(
-      'New Enquiry',
-      `${result.name} - ${result.mobile} - ${result.course}`,
+      'New Enquiry Added',
+      `${result.name} (${result.mobile}) - ${result.course} | Source: ${sourceStr} | Added by: ${creatorName}`,
       { type: 'enquiry_created', enquiryId: result._id.toString() }
     );
     
@@ -124,7 +127,7 @@ class EnquiryController {
     // Send notification to all counselors and admin
     await firebaseService.sendToAdminAndCounselors(
       'New Enquiry (Website)',
-      `${result.name} - ${result.mobile} - ${result.course}`,
+      `${result.name} (${result.mobile}) - ${result.course} | Source: WEBSITE`,
       { type: 'enquiry_created', enquiryId: result._id.toString(), source: 'website' }
     );
     
