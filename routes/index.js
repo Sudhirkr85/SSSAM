@@ -8,6 +8,7 @@ const dashboardRoutes = require('./dashboard.routes');
 const notificationRoutes = require('./notification.routes');
 const userRoutes = require('./user.routes');
 const attendanceRoutes = require('./attendance.routes');
+const chatRoutes = require('./chat.routes');
 
 module.exports = {
   authRoutes,
@@ -19,5 +20,6 @@ module.exports = {
   dashboardRoutes,
   notificationRoutes,
   userRoutes,
-  attendanceRoutes
+  attendanceRoutes,
+  chatRoutes
 };
