@@ -1,4 +1,4 @@
-const { Enquiry, Admission, Payment } = require('../models');
+const { Enquiry, Admission, Payment, Note } = require('../models');
 const { formatCRMResponse } = require('../services/geminiService');
 const catchAsync = require('../utils/catchAsync');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
@@ -6,6 +6,45 @@ const { successResponse, errorResponse } = require('../utils/responseHelper');
 // Detect query intent from user message
 function detectIntent(query) {
   const q = query.toLowerCase();
+
+  // Call intent
+  if (q.includes('call karo') || q.includes('call kro') || q.includes('call kr') ||
+      q.includes('call karna') || q.includes('phone karo') || q.includes('phone kro') ||
+      q.includes('call kijiye') || q.includes('ko call') || q.includes('ring karo') ||
+      q.includes('फोन करो') || q.includes('कॉल करो')) {
+    return 'call';
+  }
+
+  // WhatsApp intent
+  if (q.includes('whatsapp') || q.includes('whatsapp karo') || q.includes('whatsapp kro') ||
+      q.includes('whatsapp bhejo') || q.includes('wp karo') || q.includes('wa karo') ||
+      q.includes('message bhejo') || q.includes('व्हाट्सएप')) {
+    return 'whatsapp';
+  }
+
+  // Save note intent
+  if (q.includes('save note') || q.includes('save message') || q.includes('save data') ||
+      q.includes('save information') || q.includes('save details') || q.includes('kuch save') ||
+      q.includes('isey save') || q.includes('isko save') || q.includes('note likho') ||
+      q.includes('सेव करो') || q.includes('लिखो') || q.includes('याद रखना') ||
+      q.includes('save kr do') || q.includes('save kro') || q.includes('save karo')) {
+    return 'save_note';
+  }
+
+  // Get notes intent
+  if (q.includes('my notes') || q.includes('saved notes') || q.includes('saved note') ||
+      q.includes('saved message') || q.includes('saved messages') ||
+      q.includes('mere saved') || q.includes('mere notes') || q.includes('saved list') ||
+      q.includes('क्या सेव किया') || q.includes('नोट्स दिखाओ') || q.includes('नोट्स बताओ')) {
+    return 'get_notes';
+  }
+
+  // Guide intent
+  if (q.includes('help') || q.includes('guide') || q.includes('kaise use') ||
+      q.includes('use kaise') || q.includes('tutorial') || q.includes('kaise chalaye') ||
+      q.includes('मदद') || q.includes('कैसे इस्तेमाल') || q.includes('kaise chalega')) {
+    return 'guide';
+  }
 
   // Follow-up intent
   if (q.includes('follow up') || q.includes('followup') || q.includes('follow-up') ||
@@ -50,6 +89,26 @@ function extractSearchTerm(query, intent) {
     return match ? match[0] : null;
   }
 
+  if (intent === 'call' || intent === 'whatsapp') {
+    // Extract name — remove action words
+    const cleaned = q
+      .replace(/\b(call|whatsapp|whatsapp|phone|ring|ko|karo|kro|kr|karna|kijiye|bhejo|wp|wa|message|फोन|करो|कॉल|व्हाट्सएप)\b/gi, '')
+      .replace(/[?।,]/g, '')
+      .trim();
+    return cleaned || null;
+  }
+
+  if (intent === 'save_note') {
+    // Extract what to save
+    const cleaned = q
+      .replace(/^(is message ko\s+)?save\s+(note|message|data)?(\s*karo|\s*kro|\s*kr\s*do)?(\s*:\s*|\s+)/gi, '')
+      .replace(/^(सेव करो|लिखो|याद रखना)(\s*:\s*|\s+)/g, '')
+      .replace(/\s+(ko\s+)?save\s*(karo|kro|kr\s*do|kr)?$/gi, '')
+      .replace(/\s*(सेव करो|लिखो|याद रखना)$/g, '')
+      .trim();
+    return cleaned || q;
+  }
+
   if (intent === 'name_search') {
     // Remove common Hindi/English filler words
     const cleaned = q
@@ -61,6 +120,7 @@ function extractSearchTerm(query, intent) {
 
   return null;
 }
+
 
 // Detect language preference from query
 function detectLanguage(query) {
@@ -100,6 +160,157 @@ class ChatController {
     const language = detectLanguage(query);
     let dbData = {};
     let contextHint = '';
+
+    // ─── Call / WhatsApp intent ──────────────────────────────────────────
+    if (intent === 'call' || intent === 'whatsapp') {
+      const searchTerm = extractSearchTerm(query, intent);
+
+      // Check if mobile number directly given
+      const directMobile = query.match(/\b[6-9]\d{9}\b/);
+      let targetMobile = null;
+      let targetName = null;
+
+      if (directMobile) {
+        targetMobile = directMobile[0];
+        // Try to find name from DB
+        const found = await Enquiry.findOne({ mobile: targetMobile }).select('name').lean()
+          || await Admission.findOne({ mobile: targetMobile }).select('name').lean();
+        targetName = found ? found.name : `(${targetMobile})`;
+      } else if (searchTerm && searchTerm.length >= 2) {
+        // Search by name
+        const found = await Enquiry.findOne({ name: { $regex: searchTerm, $options: 'i' } })
+          .select('name mobile').lean()
+          || await Admission.findOne({ name: { $regex: searchTerm, $options: 'i' } })
+          .select('name mobile').lean();
+
+        if (found) {
+          targetMobile = found.mobile;
+          targetName = found.name;
+        }
+      }
+
+      if (!targetMobile) {
+        const notFound = language === 'hindi'
+          ? `❌ "${searchTerm}" naam ka koi record nahi mila. Sahi naam ya mobile number bolo.`
+          : `❌ No record found for "${searchTerm}". Please provide correct name or mobile.`;
+        return successResponse(res, {
+          message: notFound,
+          intent,
+          language,
+          action: null
+        }, 'Chat response generated');
+      }
+
+      const actionType = intent; // 'call' or 'whatsapp'
+      const aiMsg = language === 'hindi'
+        ? `📞 ${targetName} ka number hai: **${targetMobile}**\nNeeche button dabao ${actionType === 'call' ? 'call' : 'WhatsApp'} karne ke liye! 👇`
+        : `📞 ${targetName}'s number: **${targetMobile}**\nTap the button below to ${actionType === 'call' ? 'call' : 'WhatsApp'}! 👇`;
+
+      return successResponse(res, {
+        message: aiMsg,
+        intent,
+        language,
+        action: {
+          type: actionType,       // 'call' or 'whatsapp'
+          mobile: targetMobile,
+          name: targetName
+        }
+      }, 'Chat response generated successfully');
+    }
+
+    // ─── Save Custom Note intent ──────────────────────────────────────────
+    if (intent === 'save_note') {
+      const noteContent = extractSearchTerm(query, 'save_note');
+
+      if (!noteContent || noteContent.trim().length < 2) {
+        const errResponse = language === 'hindi'
+          ? '❌ Kuch valid message ya note likhne ko kaho (example: "save note: kal test hai").'
+          : '❌ Please provide a valid message to save (example: "save note: test tomorrow").';
+        return successResponse(res, { message: errResponse, intent, language, action: null }, 'Note empty');
+      }
+
+      const newNote = await Note.create({
+        userId: req.user.id,
+        content: noteContent
+      });
+
+      const responseText = language === 'hindi'
+        ? `✅ Note successfully save ho gaya hai: "${noteContent}"\nJab bhi chahiye ho, bolo "saved notes dikhao".`
+        : `✅ Note successfully saved: "${noteContent}"\nWhenever you need it, ask "show saved notes".`;
+
+      return successResponse(res, {
+        message: responseText,
+        intent,
+        language,
+        action: null,
+        rawData: newNote
+      }, 'Note saved successfully');
+    }
+
+    // ─── Get Saved Notes intent ───────────────────────────────────────────
+    if (intent === 'get_notes') {
+      const notes = await Note.find({ userId: req.user.id })
+        .sort({ createdAt: -1 })
+        .limit(30)
+        .lean();
+
+      dbData = {
+        type: 'user_saved_notes',
+        count: notes.length,
+        notes: notes.map(n => ({
+          content: n.content,
+          date: new Date(n.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+        }))
+      };
+      contextHint = 'List of saved notes/messages by this staff member';
+    }
+
+    // ─── Chatbot Guide/Help intent ────────────────────────────────────────
+    if (intent === 'guide') {
+      const helpMsg = language === 'hindi'
+        ? `📖 **SSSAM AI Chat Assistant Guide**\n\n` +
+          `Aap is Chatbot se voice (बोलकर) ya text (लिखकर) data manage kar sakte hain:\n\n` +
+          `🔍 **Student/Enquiry Search:**\n` +
+          `• *"Rahul ka details batao"* (Naam se search)\n` +
+          `• *"9876543210 ka status kya hai?"* (Mobile se search)\n` +
+          `• *"priya@gmail.com ka data dikhao"* (Email se search)\n\n` +
+          `📅 **Follow-ups:**\n` +
+          `• *"aaj ke follow-ups batao"* (Aaj ki appointments/follow-ups)\n\n` +
+          `💰 **Fees & Payments:**\n` +
+          `• *"pending fees kiske hai"* (Pending fee structure wale students)\n` +
+          `• *"Amit ki kitni fee pending hai?"* (Kisi student ki specific fee detail)\n\n` +
+          `📞 **Calling & WhatsApp Actions:**\n` +
+          `• *"Priya ko WhatsApp karo"* (Direct chat link button milega)\n` +
+          `• *"Rohan ko call karo"* (Direct dialing button milega)\n\n` +
+          `📝 **Custom Notes & Messages:**\n` +
+          `• *"save note: Aaj shaam ko new admissions check karne hain"* (Database mein save karne ke liye)\n` +
+          `• *"mere saved messages dikhao"* (Aapke save kiye saare notes list karne ke liye)\n\n` +
+          `🔊 Har message ke niche **Sunao** dabakar audio sun sakte hain!`
+        : `📖 **SSSAM AI Chat Assistant Guide**\n\n` +
+          `You can interact with this AI assistant using Voice or Typing:\n\n` +
+          `🔍 **Search Records:**\n` +
+          `• *"Show details of Rahul"* (Search by name)\n` +
+          `• *"Search status for 9876543210"* (Search by phone)\n` +
+          `• *"Find student priya@gmail.com"* (Search by email)\n\n` +
+          `📅 **Follow-ups:**\n` +
+          `• *"show today follow-ups"* (List of today's follow-up tasks)\n\n` +
+          `💰 **Fees Check:**\n` +
+          `• *"who has pending fees"* (List students with due amount)\n` +
+          `• *"how much fee is pending for Amit"* (Specific student fee details)\n\n` +
+          `📞 **Call/WhatsApp Commands:**\n` +
+          `• *"Call Rohan"* or *"WhatsApp Priya"* (Shows direct call/chat action buttons)\n\n` +
+          `📝 **Save Personal Notes:**\n` +
+          `• *"save note: review registrations tomorrow"* (Saves text directly to DB)\n` +
+          `• *"show my saved notes"* (Retrieves all saved notes)\n\n` +
+          `🔊 Tap **Sunao** below any response to hear it out loud!`;
+
+      return successResponse(res, {
+        message: helpMsg,
+        intent,
+        language,
+        action: null
+      }, 'Guide response generated');
+    }
 
     // ─── Follow-up queries ───────────────────────────────────────────────
     if (intent === 'followup') {
@@ -325,6 +536,7 @@ class ChatController {
       message: aiResponse,
       intent,
       language,
+      action: null,
       rawData: dbData
     }, 'Chat response generated successfully');
   });

@@ -4,6 +4,7 @@ const Admission = require('./Admission');
 const Payment = require('./Payment');
 const Attendance = require('./Attendance');
 const OfficeSettings = require('./OfficeSettings');
+const Note = require('./Note');
 
 module.exports = {
   User,
@@ -11,5 +12,7 @@ module.exports = {
   Admission,
   Payment,
   Attendance,
-  OfficeSettings
+  OfficeSettings,
+  Note
 };
+
