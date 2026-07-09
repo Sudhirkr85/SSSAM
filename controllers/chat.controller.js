@@ -318,21 +318,54 @@ Return JSON object with keys: "title" and "content".`;
 
     // ─── Get Saved Notes intent ───────────────────────────────────────────
     if (intent === 'get_notes') {
-      const notes = await Note.find({ userId: req.user.id })
-        .sort({ createdAt: -1 })
-        .limit(30)
-        .lean();
+      // Check if user is searching for specific notes by keyword
+      const searchKeyword = extractSearchTerm(query, 'get_notes');
 
-      dbData = {
-        type: 'user_saved_notes',
-        count: notes.length,
-        notes: notes.map(n => ({
-          content: n.content,
-          date: new Date(n.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
-        }))
-      };
-      contextHint = 'List of saved notes/messages by this staff member';
+      let notes;
+      if (searchKeyword && searchKeyword.length > 1) {
+        // Try text search first, then regex fallback
+        notes = await Note.find({
+          userId: req.user.id,
+          $or: [
+            { $text: { $search: searchKeyword } },
+            { title: { $regex: searchKeyword, $options: 'i' } },
+            { content: { $regex: searchKeyword, $options: 'i' } }
+          ]
+        }).sort({ createdAt: -1 }).limit(10).lean();
+      } else {
+        notes = await Note.find({ userId: req.user.id })
+          .sort({ createdAt: -1 })
+          .limit(15)
+          .lean();
+      }
+
+      if (!notes || notes.length === 0) {
+        const noNotesMsg = language === 'hindi'
+          ? `📝 Koi saved note nahi mila.\n\n**Note save karne ke liye** kaho: *"mujhe note save karna hai"* ya *"save note"*\n\nMain step-by-step help karunga! 👇`
+          : `📝 No saved notes found.\n\n**To save a note** say: *"I want to save a note"* or *"save note"*\n\nI'll guide you step by step! 👇`;
+        return successResponse(res, { message: noNotesMsg, intent, language, action: null }, 'No notes');
+      }
+
+      const headerMsg = language === 'hindi'
+        ? `📋 **${notes.length} saved note${notes.length > 1 ? 's' : ''} mile:**\n\nKisi bhi note ke neeche **"WhatsApp Bhejo"** dabao kisi student ko send karne ke liye! 👇`
+        : `📋 **Found ${notes.length} saved note${notes.length > 1 ? 's' : ''}:**\n\nTap **"WhatsApp Bhejo"** below any note to send it to a student! 👇`;
+
+      return successResponse(res, {
+        message: headerMsg,
+        intent,
+        language,
+        action: {
+          type: 'notes_list',
+          notes: notes.map(n => ({
+            _id: n._id,
+            title: n.title || 'General',
+            content: n.content,
+            date: new Date(n.createdAt).toLocaleDateString('en-IN')
+          }))
+        }
+      }, 'Notes fetched');
     }
+
 
     // ─── Chatbot Guide/Help intent ────────────────────────────────────────
     if (intent === 'guide') {
