@@ -91,4 +91,67 @@ ${JSON.stringify(data, null, 2)}`;
   return await callGemini(systemContext, query);
 }
 
-module.exports = { callGemini, formatCRMResponse };
+/**
+ * Call Gemini expecting a JSON response
+ * @param {string} systemContext - Instructions on what structure to return
+ * @param {string} userMessage - User query
+ * @returns {Promise<object>} - Parsed JSON object
+ */
+async function parseJSONResponse(systemContext, userMessage) {
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: `${systemContext}\n\nUser Query: ${userMessage}`
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 256,
+      responseMimeType: 'application/json'
+    }
+  });
+
+  return new Promise((resolve, reject) => {
+    const url = new URL(GEMINI_API_URL);
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.candidates && parsed.candidates[0] && parsed.candidates[0].content) {
+            const rawText = parsed.candidates[0].content.parts[0].text;
+            resolve(JSON.parse(rawText.trim()));
+          } else if (parsed.error) {
+            reject(new Error(parsed.error.message || 'Gemini API error'));
+          } else {
+            reject(new Error('Invalid Gemini API response'));
+          }
+        } catch (e) {
+          reject(new Error('Failed to parse Gemini response or JSON: ' + e.message));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+module.exports = { callGemini, formatCRMResponse, parseJSONResponse };

@@ -1,5 +1,5 @@
 const { Enquiry, Admission, Payment, Note } = require('../models');
-const { formatCRMResponse } = require('../services/geminiService');
+const { formatCRMResponse, parseJSONResponse } = require('../services/geminiService');
 const catchAsync = require('../utils/catchAsync');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
 
@@ -169,30 +169,71 @@ class ChatController {
       const directMobile = query.match(/\b[6-9]\d{9}\b/);
       let targetMobile = null;
       let targetName = null;
+      let prefilledText = null;
 
-      if (directMobile) {
-        targetMobile = directMobile[0];
-        // Try to find name from DB
-        const found = await Enquiry.findOne({ mobile: targetMobile }).select('name').lean()
-          || await Admission.findOne({ mobile: targetMobile }).select('name').lean();
-        targetName = found ? found.name : `(${targetMobile})`;
-      } else if (searchTerm && searchTerm.length >= 2) {
-        // Search by name
-        const found = await Enquiry.findOne({ name: { $regex: searchTerm, $options: 'i' } })
-          .select('name mobile').lean()
-          || await Admission.findOne({ name: { $regex: searchTerm, $options: 'i' } })
-          .select('name mobile').lean();
+      // Use Gemini to check if they specified a note subject to attach to WhatsApp
+      if (intent === 'whatsapp') {
+        try {
+          const sysPrompt = `Analyze the user query. They want to send a WhatsApp message to a student/enquiry.
+Check if they are specifying a saved note's title/subject or keyword to pre-fill the WhatsApp text (e.g. 'WhatsApp Priya admission message' -> studentName: 'Priya', noteKeyword: 'admission message').
+Return a JSON object with keys: "studentName" (string), "noteKeyword" (string or null).`;
+          
+          const parsedWP = await parseJSONResponse(sysPrompt, query);
+          if (parsedWP && parsedWP.studentName) {
+            targetName = parsedWP.studentName;
+            
+            // Search for student
+            const found = await Enquiry.findOne({ name: { $regex: targetName, $options: 'i' } }).select('name mobile').lean()
+              || await Admission.findOne({ name: { $regex: targetName, $options: 'i' } }).select('name mobile').lean();
+              
+            if (found) {
+              targetMobile = found.mobile;
+              targetName = found.name;
+            }
+            
+            // If they specified a note keyword, search for it
+            if (parsedWP.noteKeyword) {
+              const matchedNote = await Note.findOne({
+                userId: req.user.id,
+                $text: { $search: parsedWP.noteKeyword }
+              }).select('content').lean()
+              || await Note.findOne({
+                userId: req.user.id,
+                title: { $regex: parsedWP.noteKeyword, $options: 'i' }
+              }).select('content').lean();
+              
+              if (matchedNote) {
+                prefilledText = matchedNote.content;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Gemini WhatsApp parsing failed:', e);
+        }
+      }
 
-        if (found) {
-          targetMobile = found.mobile;
-          targetName = found.name;
+      // Fallback to legacy extraction if Gemini parsing was skipped or failed to find contact
+      if (!targetMobile) {
+        if (directMobile) {
+          targetMobile = directMobile[0];
+          const found = await Enquiry.findOne({ mobile: targetMobile }).select('name').lean()
+            || await Admission.findOne({ mobile: targetMobile }).select('name').lean();
+          targetName = found ? found.name : `(${targetMobile})`;
+        } else if (searchTerm && searchTerm.length >= 2) {
+          const found = await Enquiry.findOne({ name: { $regex: searchTerm, $options: 'i' } }).select('name mobile').lean()
+            || await Admission.findOne({ name: { $regex: searchTerm, $options: 'i' } }).select('name mobile').lean();
+
+          if (found) {
+            targetMobile = found.mobile;
+            targetName = found.name;
+          }
         }
       }
 
       if (!targetMobile) {
         const notFound = language === 'hindi'
-          ? `❌ "${searchTerm}" naam ka koi record nahi mila. Sahi naam ya mobile number bolo.`
-          : `❌ No record found for "${searchTerm}". Please provide correct name or mobile.`;
+          ? `❌ "${searchTerm || query}" ke liye koi contact number nahi mila. Sahi naam ya mobile number bolo.`
+          : `❌ No contact number found for "${searchTerm || query}". Please provide correct name or mobile.`;
         return successResponse(res, {
           message: notFound,
           intent,
@@ -202,9 +243,17 @@ class ChatController {
       }
 
       const actionType = intent; // 'call' or 'whatsapp'
-      const aiMsg = language === 'hindi'
-        ? `📞 ${targetName} ka number hai: **${targetMobile}**\nNeeche button dabao ${actionType === 'call' ? 'call' : 'WhatsApp'} karne ke liye! 👇`
-        : `📞 ${targetName}'s number: **${targetMobile}**\nTap the button below to ${actionType === 'call' ? 'call' : 'WhatsApp'}! 👇`;
+      
+      let aiMsg = '';
+      if (actionType === 'whatsapp' && prefilledText) {
+        aiMsg = language === 'hindi'
+          ? `💬 ${targetName} ko saved template ke sath WhatsApp karne ke liye ready hai!\n\n**Template Content:**\n"${prefilledText}"\n\nNeeche button dabaiye WhatsApp send karne ke liye! 👇`
+          : `💬 Ready to WhatsApp ${targetName} with the saved template!\n\n**Template Content:**\n"${prefilledText}"\n\nTap the button below to send! 👇`;
+      } else {
+        aiMsg = language === 'hindi'
+          ? `📞 ${targetName} ka number hai: **${targetMobile}**\nNeeche button dabao ${actionType === 'call' ? 'call' : 'WhatsApp'} karne ke liye! 👇`
+          : `📞 ${targetName}'s number: **${targetMobile}**\nTap the button below to ${actionType === 'call' ? 'call' : 'WhatsApp'}! 👇`;
+      }
 
       return successResponse(res, {
         message: aiMsg,
@@ -213,14 +262,33 @@ class ChatController {
         action: {
           type: actionType,       // 'call' or 'whatsapp'
           mobile: targetMobile,
-          name: targetName
+          name: targetName,
+          text: prefilledText
         }
       }, 'Chat response generated successfully');
     }
 
     // ─── Save Custom Note intent ──────────────────────────────────────────
     if (intent === 'save_note') {
-      const noteContent = extractSearchTerm(query, 'save_note');
+      let noteContent = extractSearchTerm(query, 'save_note');
+      let noteTitle = 'General';
+
+      try {
+        // Use Gemini to parse structured note
+        const sysPrompt = `You are a parser. Analyze the user query wishing to save a note/message template.
+Extract:
+1. 'title' (a short subject, label, or keyword like 'Admission confirmed', 'Fee reminder', etc.). If no subject/title is clear, use 'General'.
+2. 'content' (the actual complete message text to save).
+Return JSON object with keys: "title" and "content".`;
+        
+        const parsedNote = await parseJSONResponse(sysPrompt, query);
+        if (parsedNote && parsedNote.content) {
+          noteTitle = parsedNote.title || 'General';
+          noteContent = parsedNote.content;
+        }
+      } catch (e) {
+        console.error('Gemini JSON note parsing failed:', e);
+      }
 
       if (!noteContent || noteContent.trim().length < 2) {
         const errResponse = language === 'hindi'
@@ -231,12 +299,13 @@ class ChatController {
 
       const newNote = await Note.create({
         userId: req.user.id,
+        title: noteTitle,
         content: noteContent
       });
 
       const responseText = language === 'hindi'
-        ? `✅ Note successfully save ho gaya hai: "${noteContent}"\nJab bhi chahiye ho, bolo "saved notes dikhao".`
-        : `✅ Note successfully saved: "${noteContent}"\nWhenever you need it, ask "show saved notes".`;
+        ? `✅ Subject **"${noteTitle}"** ke sath note successfully save ho gaya hai!\n\n**Note Content:**\n"${noteContent}"\n\nIs message ko kisi ko WhatsApp karne ke liye bole: *"WhatsApp [Student Name] ko [Subject]"*`
+        : `✅ Note successfully saved with subject **"${noteTitle}"**!\n\n**Note Content:**\n"${noteContent}"\n\nTo send this to someone via WhatsApp, say: *"WhatsApp [Student Name] [Subject]"*`;
 
       return successResponse(res, {
         message: responseText,

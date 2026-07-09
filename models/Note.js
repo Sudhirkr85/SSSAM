@@ -6,6 +6,11 @@ const noteSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  title: {
+    type: String,
+    trim: true,
+    default: 'General'
+  },
   content: {
     type: String,
     required: true,
@@ -14,5 +19,7 @@ const noteSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+noteSchema.index({ title: 'text', content: 'text' });
 
 module.exports = mongoose.model('Note', noteSchema);
