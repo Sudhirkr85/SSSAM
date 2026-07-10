@@ -126,12 +126,74 @@ function extractSearchTerm(query, intent) {
 function detectLanguage(query) {
   const q = query.toLowerCase();
   const hindiChars = /[\u0900-\u097F]/;
-  const hindiWords = ['batao', 'dikhao', 'hai', 'hain', 'ka', 'ki', 'ke', 'aaj', 'sab', 'kiska', 'uska', 'baki'];
+  const hindiWords = ['batao', 'dikhao', 'hai', 'hain', 'ka', 'ki', 'ke', 'aaj', 'sab', 'kiska', 'uska', 'baki', 'karo', 'karna', 'mujhe', 'mera'];
 
-  if (hindiChars.test(q) || hindiWords.some(w => q.includes(w))) {
+  if (hindiChars.test(q) || hindiWords.some((w) => q.includes(w))) {
     return 'hindi';
   }
   return 'english';
+}
+
+function resolveLanguagePreference(body, query) {
+  if (body && (body.language === 'hindi' || body.language === 'english')) {
+    return body.language;
+  }
+  return detectLanguage(query);
+}
+
+function resolveInputMode(body, language) {
+  if (body && body.inputMode) {
+    return body.inputMode;
+  }
+  return language === 'hindi' ? 'hinglish' : 'english';
+}
+
+function buildClarificationMessage(language, searchTerm, suggestions = []) {
+  const safeSearchTerm = searchTerm || 'your query';
+  if (!suggestions.length) {
+    return language === 'hindi'
+      ? `Mujhe "${safeSearchTerm}" ka exact match nahi mila. Thoda aur specific bolo, jaise poora naam, mobile number, ya email.`
+      : `I couldn't find an exact match for "${safeSearchTerm}". Please be a bit more specific with the full name, mobile number, or email.`;
+  }
+
+  const suggestionText = suggestions.map((item, index) => `${index + 1}. ${item}`).join('\n');
+  return language === 'hindi'
+    ? `Mujhe "${safeSearchTerm}" ka exact match nahi mila. Kya aap inmein se kisi ko dhoondh rahe the?\n${suggestionText}`
+    : `I couldn't find an exact match for "${safeSearchTerm}". Did you mean one of these?\n${suggestionText}`;
+}
+
+async function findNameSuggestions(searchTerm) {
+  if (!searchTerm || searchTerm.trim().length < 2) {
+    return [];
+  }
+
+  const tokens = [...new Set(searchTerm.toLowerCase().split(/\s+/).filter((token) => token.length >= 2))];
+  if (!tokens.length) {
+    return [];
+  }
+
+  const query = {
+    $or: tokens.map((token) => ({ name: { $regex: token, $options: 'i' } }))
+  };
+
+  const [enquiries, admissions] = await Promise.all([
+    Enquiry.find(query).select('name mobile course').limit(5).lean(),
+    Admission.find(query).select('name mobile course').limit(5).lean()
+  ]);
+
+  const merged = [...enquiries, ...admissions];
+  const seen = new Set();
+  return merged
+    .filter((item) => {
+      const key = `${item.name}|${item.mobile || ''}`.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 3)
+    .map((item) => `${item.name}${item.course ? ` (${item.course})` : ''}${item.mobile ? ` - ${item.mobile}` : ''}`);
 }
 
 // Format date range for today
@@ -150,14 +212,15 @@ class ChatController {
    * Main chat endpoint — processes user query and returns AI-formatted response
    */
   chat = catchAsync(async (req, res) => {
-    const { query } = req.body;
+    const { query, responseStyle } = req.body;
 
     if (!query || query.trim().length === 0) {
       return errorResponse(res, 'Query is required', 400);
     }
 
     const intent = detectIntent(query);
-    const language = detectLanguage(query);
+    const language = resolveLanguagePreference(req.body, query);
+    const inputMode = resolveInputMode(req.body, language);
     let dbData = {};
     let contextHint = '';
 
@@ -231,9 +294,8 @@ Return a JSON object with keys: "studentName" (string), "noteKeyword" (string or
       }
 
       if (!targetMobile) {
-        const notFound = language === 'hindi'
-          ? `❌ "${searchTerm || query}" ke liye koi contact number nahi mila. Sahi naam ya mobile number bolo.`
-          : `❌ No contact number found for "${searchTerm || query}". Please provide correct name or mobile.`;
+        const suggestions = await findNameSuggestions(searchTerm || query);
+        const notFound = buildClarificationMessage(language, searchTerm || query, suggestions);
         return successResponse(res, {
           message: notFound,
           intent,
@@ -599,9 +661,14 @@ Return JSON object with keys: "title" and "content".`;
           .lean()
       ]);
 
+      const suggestions = !enquiries.length && !admissions.length
+        ? await findNameSuggestions(searchTerm)
+        : [];
+
       dbData = {
         type: 'name_search',
         searchTerm,
+        suggestions,
         enquiries: enquiries.map(e => ({
           name: e.name,
           mobile: e.mobile,
@@ -631,7 +698,11 @@ Return JSON object with keys: "title" and "content".`;
     const aiResponse = await formatCRMResponse(
       `${contextHint}\nOriginal user query: "${query}"`,
       dbData,
-      language
+      {
+        language,
+        inputMode,
+        responseStyle
+      }
     );
 
     return successResponse(res, {
@@ -645,3 +716,5 @@ Return JSON object with keys: "title" and "content".`;
 }
 
 module.exports = new ChatController();
+
+
