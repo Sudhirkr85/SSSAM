@@ -120,7 +120,7 @@ class AdmissionService {
 
     // Calculate total paid from payments
     const totalPaid = await this._calculateTotalPaid(id);
-    const remainingAmount = admission.totalFees - totalPaid;
+    const remainingAmount = Math.max(0, admission.totalFees - totalPaid - (admission.writeOffAmount || 0));
 
     // Find next upcoming installment
     const today = new Date();
@@ -205,7 +205,7 @@ class AdmissionService {
     const today = new Date();
     let enrichedAdmissions = allAdmissions.map(admission => {
       const totalPaid = paymentMap.get(admission._id.toString()) || 0;
-      const remainingAmount = admission.totalFees - totalPaid;
+      const remainingAmount = Math.max(0, admission.totalFees - totalPaid - (admission.writeOffAmount || 0));
 
       let nextDueDate = null;
       let upcomingInstallment = null;
@@ -485,10 +485,7 @@ class AdmissionService {
     // Calculate total paid and refunded
     const allPayments = await Payment.find({
       admissionId: admissionId,
-      $or: [
-        { status: 'success' },
-        { status: { $exists: false } }
-      ]
+      status: { $in: ['ACTIVE', 'success'] }
     });
 
     const totalPaid = allPayments

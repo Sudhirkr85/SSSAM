@@ -107,19 +107,23 @@ class AdmissionController {
   dropStudent = catchAsync(async (req, res) => {
     const result = await admissionService.dropStudent(req.params.id, req.body, req.user);
     
-    // Send notification to admin
-    const admission = await admissionService.getAdmissionById(req.params.id);
-    const notificationData = {
-      type: 'student_dropped',
-      admissionId: admission._id.toString(),
-      reason: req.body.reason || 'Not specified',
-    };
-    
-    await firebaseService.sendToAdmin(
-      'Student Dropped',
-      `${admission.name} - ${admission.course} has been dropped. Reason: ${req.body.reason || 'Not specified'}`,
-      notificationData
-    );
+    // Send notification to admin safely
+    try {
+      const admission = await admissionService.getAdmissionById(req.params.id);
+      const notificationData = {
+        type: 'student_dropped',
+        admissionId: admission._id.toString(),
+        reason: req.body.reason || 'Not specified',
+      };
+      
+      await firebaseService.sendToAdmin(
+        'Student Dropped',
+        `${admission.name} - ${admission.course} has been dropped. Reason: ${req.body.reason || 'Not specified'}`,
+        notificationData
+      );
+    } catch (notifErr) {
+      console.error('Failed to send drop student notification:', notifErr);
+    }
     
     return successResponse(res, result, 'Student dropped successfully');
   });

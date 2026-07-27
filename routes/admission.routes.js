@@ -75,7 +75,7 @@ router.get(
 // POST /admissions/:id/drop - Drop student
 router.post(
   '/:id/drop',
-  roleMiddleware(ROLES.ADMIN),
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
   admissionIdParamValidation,
   dropStudentValidation,
   validateRequest,
