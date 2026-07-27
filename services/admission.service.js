@@ -469,7 +469,7 @@ class AdmissionService {
 
   // Drop Student
   async dropStudent(admissionId, dropData, user) {
-    const { reason, dropDate, clearDues } = dropData;
+    const { reason, dropDate, clearDues, note } = dropData;
     
     // Find admission
     const admission = await Admission.findById(admissionId);
@@ -499,11 +499,16 @@ class AdmissionService {
     const netPaid = totalPaid - totalRefunded;
     const pendingAmount = admission.totalFees - netPaid;
 
+    let fullReason = reason || 'No reason provided';
+    if (note && note.trim() && note.trim() !== `Student dropped: ${reason}`) {
+      fullReason = `${fullReason} - Note: ${note.trim()}`;
+    }
+
     // Update admission
     const updateData = {
       status: ADMISSION_STATUSES.DROPPED,
       dropDate: dropDate ? new Date(dropDate) : new Date(),
-      dropReason: reason || 'No reason provided',
+      dropReason: fullReason,
       updatedBy: user.id,
       updatedAt: new Date()
     };
