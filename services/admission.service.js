@@ -210,7 +210,7 @@ class AdmissionService {
       let nextDueDate = null;
       let upcomingInstallment = null;
 
-      if (remainingAmount > 0) {
+      if (remainingAmount > 0 && admission.status !== ADMISSION_STATUSES.DROPPED) {
         if (admission.paymentType === 'ONE_TIME') {
           nextDueDate = admission.fullPaymentDueDate || null;
         } else if (admission.installments && admission.installments.length > 0) {
@@ -236,7 +236,7 @@ class AdmissionService {
 
     // Filter by pending dues if requested
     if (query.hasDues === 'true') {
-      enrichedAdmissions = enrichedAdmissions.filter(a => a.remainingAmount > 0);
+      enrichedAdmissions = enrichedAdmissions.filter(a => a.remainingAmount > 0 && a.status !== ADMISSION_STATUSES.DROPPED);
       totalCount = enrichedAdmissions.length;
     }
 
