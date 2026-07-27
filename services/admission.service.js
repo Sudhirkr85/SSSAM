@@ -207,17 +207,30 @@ class AdmissionService {
       const totalPaid = paymentMap.get(admission._id.toString()) || 0;
       const remainingAmount = admission.totalFees - totalPaid;
 
-      // Find next upcoming installment
-      const upcomingInstallment = admission.installments
-        .filter(inst => inst.status === INSTALLMENT_STATUSES.PENDING && new Date(inst.dueDate) >= today)
-        .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0] || null;
+      let nextDueDate = null;
+      let upcomingInstallment = null;
+
+      if (remainingAmount > 0) {
+        if (admission.paymentType === 'ONE_TIME') {
+          nextDueDate = admission.fullPaymentDueDate || null;
+        } else if (admission.installments && admission.installments.length > 0) {
+          const pendingInsts = (admission.installments || [])
+            .filter(inst => inst.status !== INSTALLMENT_STATUSES.PAID && inst.status !== 'PAID')
+            .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+          
+          if (pendingInsts.length > 0) {
+            upcomingInstallment = pendingInsts[0];
+            nextDueDate = pendingInsts[0].dueDate;
+          }
+        }
+      }
 
       return {
         ...admission,
         totalPaid,
         remainingAmount,
         upcomingInstallment,
-        nextDueDate: upcomingInstallment ? upcomingInstallment.dueDate : null
+        nextDueDate
       };
     });
 
@@ -262,12 +275,9 @@ class AdmissionService {
             return sortOrder * (aValue.localeCompare(bValue));
 
           case 'nextDue':
-            if (a.nextDueDate && b.nextDueDate) {
-              return sortOrder * (new Date(a.nextDueDate) - new Date(b.nextDueDate));
-            }
-            if (a.nextDueDate) return sortOrder * -1;
-            if (b.nextDueDate) return sortOrder * 1;
-            return 0;
+            const timeA = a.nextDueDate ? new Date(a.nextDueDate).getTime() : Infinity;
+            const timeB = b.nextDueDate ? new Date(b.nextDueDate).getTime() : Infinity;
+            return sortOrder * (timeA - timeB);
 
           default:
             // Default sort by createdAt
