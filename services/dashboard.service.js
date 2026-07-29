@@ -130,69 +130,38 @@ class DashboardService {
   async getCounselorDashboard(user) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Build base filter for counselor's assigned enquiries
     const enquiryFilter = {
       assignedTo: user.id
     };
-    
-    // Get main stats
-    const [
-      totalEnquiries,
-      totalConversions,
-      pendingFollowups
-    ] = await Promise.all([
-      Enquiry.countDocuments(enquiryFilter),
-      Enquiry.countDocuments({
-        ...enquiryFilter,
-        status: ENQUIRY_STATUSES.CONVERTED
-      }),
-      Enquiry.countDocuments({
-        ...enquiryFilter,
-        followUpDate: { $lt: today },
-        status: { $ne: ENQUIRY_STATUSES.CONVERTED }
-      })
-    ]);
 
-    // Calculate today's calls: NEW enquiries + FOLLOW_UP with followUpDate <= today
-    const [newEnquiriesCount, followUpTodayCount] = await Promise.all([
-      // Count NEW enquiries
-      Enquiry.countDocuments({
-        ...enquiryFilter,
-        status: ENQUIRY_STATUSES.NEW
-      }),
-      // Count FOLLOW_UP enquiries with followUpDate <= today (including overdue)
-      Enquiry.countDocuments({
-        ...enquiryFilter,
-        status: ENQUIRY_STATUSES.FOLLOW_UP,
-        followUpDate: { $lte: today }
-      })
-    ]);
-    
-    const todayCalls = newEnquiriesCount + followUpTodayCount;
+    const enquiryService = require('./enquiry.service');
+    const stats = await enquiryService.getEnquiryStats(enquiryFilter, user);
+    const totalConversions = await Enquiry.countDocuments({
+      ...enquiryFilter,
+      status: ENQUIRY_STATUSES.ADMITTED
+    });
 
     // Get recent enquiries (last 5)
     const recentEnquiries = await Enquiry.find(enquiryFilter)
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('name courseInterested status followUpDate createdAt')
+      .select('name course courseInterested status followUpDate createdAt')
       .lean();
 
     const formattedRecentEnquiries = recentEnquiries.map(e => ({
       name: e.name,
-      course: e.courseInterested,
-      status: e.status,
+      course: e.course || e.courseInterested || 'General Enquiry',
+      status: e.status || 'NEW',
       followUpDate: e.followUpDate ? e.followUpDate.toISOString().split('T')[0] : null,
-      createdAt: e.createdAt.toISOString().split('T')[0]
+      createdAt: e.createdAt ? e.createdAt.toISOString().split('T')[0] : ''
     }));
 
     // Get upcoming followups (next 5)
     const upcomingFollowupsData = await Enquiry.find({
       ...enquiryFilter,
       followUpDate: { $gte: today },
-      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
+      status: { $nin: [ENQUIRY_STATUSES.NOT_INTERESTED, ENQUIRY_STATUSES.ADMITTED] }
     })
       .sort({ followUpDate: 1 })
       .limit(5)
@@ -214,19 +183,18 @@ class DashboardService {
       },
       {
         $group: {
-          _id: '$courseInterested',
+          _id: { $ifNull: ['$course', '$courseInterested'] },
           enquiries: { $sum: 1 },
           converted: {
-            $sum: { $cond: [{ $eq: ['$status', ENQUIRY_STATUSES.CONVERTED] }, 1, 0] }
+            $sum: { $cond: [{ $eq: ['$status', ENQUIRY_STATUSES.ADMITTED] }, 1, 0] }
           }
         }
       },
       { $sort: { enquiries: -1 } }
     ]);
 
-    // Filter courses with enquiries > 0
     const formattedCourseBreakdown = courseBreakdown
-      .filter(c => c.enquiries > 0)
+      .filter(c => c.enquiries > 0 && c._id)
       .map(c => ({
         course: c._id,
         enquiries: c.enquiries,
@@ -234,10 +202,10 @@ class DashboardService {
       }));
     
     return {
-      totalEnquiries,
+      totalEnquiries: stats.all,
       totalConversions,
-      today: todayCalls,
-      pendingFollowups,
+      today: stats.today_followups,
+      pendingFollowups: stats.pending_followups,
       enquiries: formattedRecentEnquiries,
       upcomingFollowups: formattedUpcomingFollowups,
       courseBreakdown: formattedCourseBreakdown
@@ -444,50 +412,33 @@ class DashboardService {
       monthlyRevenue[monthNames[date.getMonth()]] = `₹${monthTotal.toLocaleString()}`;
     }
 
-    // Calculate today's calls: NEW enquiries + FOLLOW_UP with followUpDate <= today
-    const [newEnquiriesCount, followUpTodayCount] = await Promise.all([
-      // Count NEW enquiries
-      Enquiry.countDocuments({
-        ...enquiryFilter,
-        status: ENQUIRY_STATUSES.NEW
-      }),
-      // Count FOLLOW_UP enquiries with followUpDate <= today (including overdue)
-      Enquiry.countDocuments({
-        ...enquiryFilter,
-        status: ENQUIRY_STATUSES.FOLLOW_UP,
-        followUpDate: { $lte: today }
-      })
-    ]);
-    
-    const todayCalls = newEnquiriesCount + followUpTodayCount;
+    // Calculate stats using enquiryService for 100% accuracy
+    const enquiryService = require('./enquiry.service');
+    const stats = await enquiryService.getEnquiryStats(enquiryFilter, user);
 
-    // Get pending followups
-    const pendingFollowupsFilter = {
-      ...enquiryFilter,
-      followUpDate: { $lt: today },
-      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
-    };
-    const pendingFollowups = await Enquiry.countDocuments(pendingFollowupsFilter);
+    const totalEnquiries = stats.all;
+    const todayCalls = stats.today_followups;
+    const pendingFollowups = stats.pending_followups;
 
     // Get recent enquiries (last 5)
     const recentEnquiries = await Enquiry.find(enquiryFilter)
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('name courseInterested status createdAt')
+      .select('name course courseInterested status createdAt')
       .lean();
 
     const formattedRecentEnquiries = recentEnquiries.map(e => ({
       name: e.name,
-      course: e.courseInterested,
-      status: e.status,
-      createdAt: e.createdAt.toISOString().split('T')[0]
+      course: e.course || e.courseInterested || 'General Enquiry',
+      status: e.status || 'NEW',
+      createdAt: e.createdAt ? e.createdAt.toISOString().split('T')[0] : ''
     }));
 
     // Get upcoming followups (next 5)
     const upcomingFollowupsFilter = {
       ...enquiryFilter,
       followUpDate: { $gte: today },
-      status: { $ne: ENQUIRY_STATUSES.CONVERTED }
+      status: { $nin: [ENQUIRY_STATUSES.NOT_INTERESTED, ENQUIRY_STATUSES.ADMITTED] }
     };
     const upcomingFollowups = await Enquiry.find(upcomingFollowupsFilter)
       .sort({ followUpDate: 1 })
