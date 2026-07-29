@@ -188,6 +188,126 @@ Here is the CRM data relevant to the query:
 ${JSON.stringify(data, null, 2)}`;
 }
 
+function formatFallbackLocalResponse(query, data, options = {}) {
+  const isHindi = options.language === 'hindi';
+
+  if (!data || Object.keys(data).length === 0) {
+    return isHindi
+      ? `Aapki query "${query}" ke liye koi result nahi mila. Please naam, mobile number, ya email check kijiye.`
+      : `No results found for "${query}". Please check the name, mobile number, or email.`;
+  }
+
+  // 1. Today Followups
+  if (data.type === 'today_followups') {
+    if (!data.count || data.count === 0) {
+      return isHindi
+        ? `📅 Aaj (${data.date}) ke liye koi pending follow-up nahi hai! Sab set hai.`
+        : `📅 No follow-ups scheduled for today (${data.date}). All clear!`;
+    }
+    let text = isHindi
+      ? `📅 **Aaj (${data.date}) ke ${data.count} Follow-up(s) hain:**\n\n`
+      : `📅 **Today (${data.date}) - ${data.count} Follow-up(s):**\n\n`;
+    
+    data.followups.forEach((f, idx) => {
+      text += `${idx + 1}. **${f.name}** (${f.course || 'N/A'})\n   📱 ${f.mobile || 'N/A'} | ⏰ ${f.followUpTime} | 👤 ${f.assignedTo}\n\n`;
+    });
+    return text.trim();
+  }
+
+  // 2. Pending Fees
+  if (data.type === 'pending_fees') {
+    if (!data.count || data.count === 0) {
+      return isHindi
+        ? `💰 Koi pending fees nahi mili!`
+        : `💰 No students with pending fees found!`;
+    }
+    let text = isHindi
+      ? `💰 **Pending Fees Students (${data.count}):**\n\n`
+      : `💰 **Students with Pending Fees (${data.count}):**\n\n`;
+    
+    data.students.forEach((s, idx) => {
+      text += `${idx + 1}. **${s.name}** (${s.course || 'N/A'})\n   📱 Mobile: ${s.mobile || 'N/A'}\n   💵 Total: ₹${s.totalFees} | Paid: ₹${s.paidAmount} | **Pending: ₹${s.pendingAmount}**\n\n`;
+    });
+    return text.trim();
+  }
+
+  // 3. Mobile Search
+  if (data.type === 'mobile_search') {
+    const e = data.enquiry;
+    const a = data.admission;
+    if (!e && !a) {
+      return isHindi
+        ? `📱 Mobile number **${data.mobile}** ka koi record nahi mila.`
+        : `📱 No record found for mobile number **${data.mobile}**.`;
+    }
+    let text = `📱 **Details for ${data.mobile}:**\n\n`;
+    if (a) {
+      text += `🎓 **Admission Record:**\n• Name: **${a.name}**\n• Course: ${a.course}\n• Pending Fee: ₹${a.pendingAmount}\n• Status: ${a.status}\n\n`;
+    }
+    if (e) {
+      text += `📋 **Enquiry Record:**\n• Name: **${e.name}**\n• Course: ${e.course}\n• Email: ${e.email || 'N/A'}\n• Status: ${e.status}\n• Assigned To: ${e.assignedTo}\n\n`;
+    }
+    return text.trim();
+  }
+
+  // 4. Email Search
+  if (data.type === 'email_search') {
+    const e = data.enquiry;
+    const a = data.admission;
+    if (!e && !a) {
+      return isHindi
+        ? `📧 Email **${data.email}** ka koi record nahi mila.`
+        : `📧 No record found for email **${data.email}**.`;
+    }
+    let text = `📧 **Details for ${data.email}:**\n\n`;
+    if (a) {
+      text += `🎓 **Admission:** ${a.name} (${a.course}) - Fees: ₹${a.totalFees}\n\n`;
+    }
+    if (e) {
+      text += `📋 **Enquiry:** ${e.name} (${e.course}) - Status: ${e.status}\n\n`;
+    }
+    return text.trim();
+  }
+
+  // 5. Name Search
+  if (data.type === 'name_search') {
+    const enq = data.enquiries || [];
+    const adm = data.admissions || [];
+
+    if (enq.length === 0 && adm.length === 0) {
+      if (data.suggestions && data.suggestions.length > 0) {
+        let sugText = data.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n');
+        return isHindi
+          ? `Mujhe "${data.searchTerm}" ka exact record nahi mila. Kya aap inmein se kisi ko dhoondh rahe the?\n\n${sugText}`
+          : `No exact match for "${data.searchTerm}". Did you mean one of these?\n\n${sugText}`;
+      }
+      return isHindi
+        ? `🔍 "${data.searchTerm}" naam se koi student ya enquiry nahi mili.`
+        : `🔍 No student or enquiry found for "${data.searchTerm}".`;
+    }
+
+    let text = `🔍 **Search Results for "${data.searchTerm}":**\n\n`;
+    if (adm.length > 0) {
+      text += `🎓 **Admissions (${adm.length}):**\n`;
+      adm.forEach((a, i) => {
+        text += `${i + 1}. **${a.name}** | Course: ${a.course} | Mobile: ${a.mobile} | Pending: ₹${a.pendingAmount}\n`;
+      });
+      text += `\n`;
+    }
+    if (enq.length > 0) {
+      text += `📋 **Enquiries (${enq.length}):**\n`;
+      enq.forEach((e, i) => {
+        text += `${i + 1}. **${e.name}** | Course: ${e.course} | Mobile: ${e.mobile} | Status: ${e.status}\n`;
+      });
+    }
+    return text.trim();
+  }
+
+  return isHindi
+    ? `Processed query "${query}"`
+    : `Processed query "${query}"`;
+}
+
 async function formatCRMResponse(query, data, options = {}) {
   const systemContext = buildResponseSystemContext(data, options);
   const primary = PRIMARY_PROVIDER === 'groq'
@@ -199,7 +319,12 @@ async function formatCRMResponse(query, data, options = {}) {
       ? () => callGemini(systemContext, query)
       : null;
 
-  return await callWithFallback(primary, fallback);
+  try {
+    return await callWithFallback(primary, fallback);
+  } catch (err) {
+    console.warn(`AI Provider failed (${err.message}). Using local fallback formatter.`);
+    return formatFallbackLocalResponse(query, data, options);
+  }
 }
 
 async function parseJSONResponse(systemContext, userMessage) {
@@ -213,7 +338,12 @@ async function parseJSONResponse(systemContext, userMessage) {
       ? () => callGeminiJson(jsonSystemContext, userMessage)
       : null;
 
-  return await callWithFallback(primary, fallback);
+  try {
+    return await callWithFallback(primary, fallback);
+  } catch (err) {
+    console.warn(`AI JSON Provider failed (${err.message}). Returning null fallback.`);
+    return null;
+  }
 }
 
 module.exports = { callGemini, callGroq, formatCRMResponse, parseJSONResponse };
