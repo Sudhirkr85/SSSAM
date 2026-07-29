@@ -201,17 +201,12 @@ function formatFallbackLocalResponse(query, data, options = {}) {
   if (data.type === 'today_followups') {
     if (!data.count || data.count === 0) {
       return isHindi
-        ? `📅 Aaj (${data.date}) ke liye koi pending follow-up nahi hai! Sab set hai.`
-        : `📅 No follow-ups scheduled for today (${data.date}). All clear!`;
+        ? `📅 Aaj ke liye koi pending follow-up nahi hai! Sab set hai.`
+        : `📅 No follow-ups scheduled for today. All clear!`;
     }
-    let text = isHindi
-      ? `📅 **Aaj (${data.date}) ke ${data.count} Follow-up(s) hain:**\n\n`
-      : `📅 **Today (${data.date}) - ${data.count} Follow-up(s):**\n\n`;
-    
-    data.followups.forEach((f, idx) => {
-      text += `${idx + 1}. **${f.name}** (${f.course || 'N/A'})\n   📱 ${f.mobile || 'N/A'} | ⏰ ${f.followUpTime} | 👤 ${f.assignedTo}\n\n`;
-    });
-    return text.trim();
+    return isHindi
+      ? `📅 **Aaj ke ${data.count} Follow-up(s) hain:**`
+      : `📅 **Today's ${data.count} Follow-up(s):**`;
   }
 
   // 2. Pending Fees
@@ -221,14 +216,9 @@ function formatFallbackLocalResponse(query, data, options = {}) {
         ? `💰 Koi pending fees nahi mili!`
         : `💰 No students with pending fees found!`;
     }
-    let text = isHindi
-      ? `💰 **Pending Fees Students (${data.count}):**\n\n`
-      : `💰 **Students with Pending Fees (${data.count}):**\n\n`;
-    
-    data.students.forEach((s, idx) => {
-      text += `${idx + 1}. **${s.name}** (${s.course || 'N/A'})\n   📱 Mobile: ${s.mobile || 'N/A'}\n   💵 Total: ₹${s.totalFees} | Paid: ₹${s.paidAmount} | **Pending: ₹${s.pendingAmount}**\n\n`;
-    });
-    return text.trim();
+    return isHindi
+      ? `💰 **Pending Fees (${data.count} Students):**`
+      : `💰 **Pending Fees (${data.count} Students):**`;
   }
 
   // 3. Mobile Search
