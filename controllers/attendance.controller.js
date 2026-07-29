@@ -13,8 +13,7 @@ const getPersonalHistory = catchAsync(async (req, res) => {
 });
 
 const getAdminHistory = catchAsync(async (req, res) => {
-  const history = await attendanceService.getAllHistory(req.query);
-  const summary = await attendanceService.getSummaryStats(req.query);
+  const { history, summary } = await attendanceService.getAdminDataCombined(req.query);
   return successResponse(res, { history, summary }, 'Admin history retrieved successfully');
 });
 

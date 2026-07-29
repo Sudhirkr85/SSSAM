@@ -1,10 +1,13 @@
 const { Attendance, OfficeSettings, User } = require('../models');
 const AppError = require('../utils/AppError');
 
+let cachedOfficeSettings = null;
+
 class AttendanceService {
-  // Get office settings, or create default if none exists
+  // Get office settings, or create default if none exists (Cached in RAM)
   async getOfficeSettings() {
-    let settings = await OfficeSettings.findOne();
+    if (cachedOfficeSettings) return cachedOfficeSettings;
+    let settings = await OfficeSettings.findOne().lean();
     if (!settings) {
       settings = await OfficeSettings.create({
         latitude: 28.4595, // Default Gurgaon coords
@@ -12,10 +15,11 @@ class AttendanceService {
         radiusMeters: 100
       });
     }
+    cachedOfficeSettings = settings;
     return settings;
   }
 
-  // Update office settings
+  // Update office settings (Invalidates RAM Cache)
   async updateOfficeSettings(data) {
     const { latitude, longitude, radiusMeters } = data;
     if (latitude === undefined || longitude === undefined) {
@@ -34,6 +38,7 @@ class AttendanceService {
     }
     
     await settings.save();
+    cachedOfficeSettings = settings.toObject();
     return settings;
   }
 
@@ -115,8 +120,8 @@ class AttendanceService {
     return this._formatHistory(logs);
   }
 
-  // Get All History (Admin only)
-  async getAllHistory(query = {}) {
+  // Get Combined History & Summary Stats (Single Pass DB Query)
+  async getAdminDataCombined(query = {}) {
     const filter = {};
 
     // Filter by User Search (name/mobile)
@@ -151,31 +156,17 @@ class AttendanceService {
       }
     }
 
+    // Single DB query with lean indexing
     const logs = await Attendance.find(filter)
       .populate('userId', 'name email role')
       .sort({ timestamp: -1 })
       .lean();
 
-    return this._formatAdminHistory(logs);
-  }
+    const history = this._formatAdminHistory(logs);
 
-  // Get Monthly Summary statistics (Admin only)
-  async getSummaryStats(query = {}) {
-    const { start, end } = this._getDateRange(query.range || 'thisMonth');
-    const filter = {};
-    if (start && end) {
-      filter.timestamp = { $gte: start, $lte: end };
-    }
-
-    const logs = await Attendance.find(filter)
-      .populate('userId', 'name email role')
-      .sort({ timestamp: 1 })
-      .lean();
-
-    const formatted = this._formatAdminHistory(logs);
+    // Compute summary stats in-memory (0 extra DB calls)
     const userSummary = {};
-
-    formatted.forEach(log => {
+    history.forEach(log => {
       const uid = log.userId?.toString();
       if (!uid) return;
 
@@ -195,12 +186,26 @@ class AttendanceService {
       }
     });
 
-    return Object.values(userSummary).map(u => ({
+    const summary = Object.values(userSummary).map(u => ({
       name: u.name,
       role: u.role,
       daysPresent: u.uniqueDates.size,
       totalHours: Math.round(u.totalHours * 100) / 100
     }));
+
+    return { history, summary };
+  }
+
+  // Get All History (Admin only)
+  async getAllHistory(query = {}) {
+    const { history } = await this.getAdminDataCombined(query);
+    return history;
+  }
+
+  // Get Monthly Summary statistics (Admin only)
+  async getSummaryStats(query = {}) {
+    const { summary } = await this.getAdminDataCombined(query);
+    return summary;
   }
 
   // Update dynamic record values for User on a specific date (Admin only)
