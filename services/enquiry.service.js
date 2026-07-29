@@ -503,6 +503,37 @@ class EnquiryService {
     }
   }
 
+  async getEnquiryStats(query, user) {
+    const queryCopy = { ...query };
+    delete queryCopy.status;
+    delete queryCopy.filterType;
+
+    const baseFilter = this._buildFilter(queryCopy, user);
+
+    const enquiries = await Enquiry.find(baseFilter).lean();
+
+    const all = this._applySpecialFilter(enquiries, 'all', queryCopy).length;
+    const today_followups = this._applySpecialFilter(enquiries, 'today_followups', queryCopy).length;
+    const pending_followups = this._applySpecialFilter(enquiries, 'pending_followups', queryCopy).length;
+    const new_leads = this._applySpecialFilter(enquiries, 'new', queryCopy).length;
+    const contacted = this._applySpecialFilter(enquiries, 'contacted', queryCopy).length;
+    const not_interested = this._applySpecialFilter(enquiries, 'not_interested', queryCopy).length;
+
+    return {
+      all,
+      today_followups,
+      pending_followups,
+      new: new_leads,
+      contacted,
+      not_interested,
+      NEW: new_leads,
+      TODAY_FOLLOWUPS: today_followups,
+      PENDING_FOLLOWUPS: pending_followups,
+      CONTACTED: contacted,
+      NOT_INTERESTED: not_interested
+    };
+  }
+
   // Build filter
   _buildFilter(query, user) {
     const filter = {};

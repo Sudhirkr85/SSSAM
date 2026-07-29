@@ -46,6 +46,15 @@ class EnquiryController {
     );
   });
 
+  getEnquiryStats = catchAsync(async (req, res) => {
+    const stats = await enquiryService.getEnquiryStats(req.query, req.user);
+    return successResponse(
+      res,
+      stats,
+      'Enquiry stats retrieved successfully'
+    );
+  });
+
   // PUT /enquiries/:id/update - Full update API
   updateEnquiry = catchAsync(async (req, res) => {
     const enquiry = await enquiryService.updateEnquiry(

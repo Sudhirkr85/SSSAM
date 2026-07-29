@@ -45,6 +45,13 @@ router.get(
   enquiryController.listEnquiries
 );
 
+// GET /enquiries/stats - Get enquiry summary counts
+router.get(
+  '/stats',
+  roleMiddleware(ROLES.ADMIN, ROLES.COUNSELOR),
+  enquiryController.getEnquiryStats
+);
+
 // GET /enquiries/walkin-brought-by - Get walk-in enquiries by brought by data
 router.get(
   '/walkin-brought-by',
