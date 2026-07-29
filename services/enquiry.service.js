@@ -87,7 +87,7 @@ class EnquiryService {
     const page = parseInt(query.page) || PAGINATION.DEFAULT_PAGE;
     const limit = Math.min(parseInt(query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
     const skip = (page - 1) * limit;
-    const { filterType } = query;
+    const filterType = query.filterType || 'all';
 
     const filter = this._buildFilter(query, user);
 
@@ -98,10 +98,8 @@ class EnquiryService {
       .sort({ createdAt: -1 })
       .lean();
 
-    // Apply special filter if specified
-    if (filterType) {
-      enquiries = this._applySpecialFilter(enquiries, filterType, query);
-    }
+    // Apply special filter
+    enquiries = this._applySpecialFilter(enquiries, filterType, query);
 
     // Apply pagination after filtering
     const totalCount = filterType ? enquiries.length : await Enquiry.countDocuments(filter);
@@ -384,7 +382,10 @@ class EnquiryService {
 
     switch (filterType) {
       case 'all':
-        // Show all enquiries except NOT_INTERESTED
+        // Show all enquiries except NOT_INTERESTED (unless status is explicitly NOT_INTERESTED)
+        if (query.status && query.status.includes(ENQUIRY_STATUSES.NOT_INTERESTED)) {
+          return enquiries;
+        }
         return enquiries.filter(enquiry => enquiry.status !== ENQUIRY_STATUSES.NOT_INTERESTED);
 
       case 'new':
