@@ -340,7 +340,7 @@ class DashboardService {
     }
 
     // Get total enquiries
-    const totalEnquiries = await Enquiry.countDocuments(enquiryFilter);
+    let totalEnquiries = await Enquiry.countDocuments(enquiryFilter);
 
     // Get admission stats
     const [totalAdmissions, allAdmissions] = await Promise.all([
@@ -416,7 +416,7 @@ class DashboardService {
     const enquiryService = require('./enquiry.service');
     const stats = await enquiryService.getEnquiryStats(enquiryFilter, user);
 
-    const totalEnquiries = stats.all;
+    totalEnquiries = stats.all;
     const todayCalls = stats.today_followups;
     const pendingFollowups = stats.pending_followups;
 
