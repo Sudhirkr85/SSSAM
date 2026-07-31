@@ -51,6 +51,11 @@ class FirebaseService {
   }
 
   async sendNotification(userId, title, body, data = {}) {
+    if (!title || !title.trim() || !body || !body.trim()) {
+      console.log(`[FirebaseService] Blocked notification with missing title or body for user: ${userId}`);
+      return { success: false, message: 'Title and body are required' };
+    }
+
     const userIdStr = userId.toString();
 
     // Check for duplicates before sending
