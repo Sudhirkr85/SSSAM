@@ -55,6 +55,68 @@ class UserController {
       'User retrieved successfully'
     );
   });
+
+  updateUserRole = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID format' });
+    }
+
+    if (!role || !Object.values(ROLES).includes(role)) {
+      return res.status(400).json({ success: false, message: 'Invalid or missing role' });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.role === ROLES.ADMIN) {
+      return res.status(403).json({ success: false, message: 'Admin role cannot be modified' });
+    }
+
+    user.role = role;
+    await user.save();
+
+    return successResponse(
+      res,
+      { user: { _id: user._id, name: user.name, email: user.email, role: user.role } },
+      'User role updated successfully'
+    );
+  });
+
+  resetUserPassword = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const { newPassword } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID format' });
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.role === ROLES.ADMIN) {
+      return res.status(403).json({ success: false, message: 'Admin password cannot be reset via user management' });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    return successResponse(
+      res,
+      null,
+      'User password reset successfully'
+    );
+  });
 }
 
 module.exports = new UserController();

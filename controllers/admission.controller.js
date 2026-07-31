@@ -46,18 +46,8 @@ class AdmissionController {
         status: req.body.status,
       };
       
-      // Notify counselor
-      if (admission.counselorId) {
-        await firebaseService.sendNotification(
-          admission.counselorId._id,
-          `Admission ${statusText}`,
-          `${admission.name} - ${admission.course} has been ${statusText.toLowerCase()}`,
-          notificationData
-        );
-      }
-      
-      // Notify admin
-      await firebaseService.sendToAdmin(
+      // Notify admin and counselor (deduplicated)
+      await firebaseService.sendToAdminAndCounselors(
         `Admission ${statusText}`,
         `${admission.name} - ${admission.course} has been ${statusText.toLowerCase()}`,
         notificationData
@@ -79,18 +69,8 @@ class AdmissionController {
       paymentDate: req.body.paymentDate,
     };
     
-    // Notify counselor
-    if (admission.counselorId) {
-      await firebaseService.sendNotification(
-        admission.counselorId._id,
-        'Payment Recorded',
-        `Payment of ${req.body.amount} received for ${admission.name} - ${admission.course}`,
-        notificationData
-      );
-    }
-    
-    // Notify admin
-    await firebaseService.sendToAdmin(
+    // Notify admin and counselor (deduplicated)
+    await firebaseService.sendToAdminAndCounselors(
       'Payment Recorded',
       `Payment of ${req.body.amount} received for ${admission.name} - ${admission.course}`,
       notificationData

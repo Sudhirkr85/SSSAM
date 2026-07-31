@@ -28,4 +28,20 @@ router.get(
   userController.getUserById
 );
 
+// PUT /api/users/:id/role - Admin only
+router.put(
+  '/:id/role',
+  authMiddleware,
+  roleMiddleware(ROLES.ADMIN),
+  userController.updateUserRole
+);
+
+// PUT /api/users/:id/reset-password - Admin only
+router.put(
+  '/:id/reset-password',
+  authMiddleware,
+  roleMiddleware(ROLES.ADMIN),
+  userController.resetUserPassword
+);
+
 module.exports = router;

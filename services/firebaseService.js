@@ -51,13 +51,19 @@ class FirebaseService {
   }
 
   async sendNotification(userId, title, body, data = {}) {
+    const userIdStr = userId.toString();
+
     // Check for duplicates before sending
-    if (this._isDuplicate(userId, title, body, data)) {
+    if (this._isDuplicate(userIdStr, title, body, data)) {
+      console.log(`[FirebaseService] Duplicate notification blocked for user: ${userIdStr}`);
       return { success: false, message: 'Duplicate notification blocked', duplicate: true };
     }
 
+    // Mark as sent IMMEDIATELY upon entry to prevent concurrent/race condition duplicate calls
+    this._markSent(userIdStr, title, body, data);
+
     try {
-      const user = await User.findById(userId);
+      const user = await User.findById(userIdStr);
       if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
         return { success: false, message: 'No FCM tokens found for user' };
       }
@@ -67,12 +73,16 @@ class FirebaseService {
         return { success: false, message: 'No valid FCM tokens' };
       }
 
-      // Deduplicate tokens by token string to prevent duplicate notifications on the same device
-      const uniqueTokensMap = new Map();
+      // Group by deviceInfo and pick the most recent token per device to prevent multiple pushes to same phone
+      const deviceTokenMap = new Map();
       validTokens.forEach(t => {
-        uniqueTokensMap.set(t.token, t);
+        const devKey = t.deviceInfo || 'web';
+        const existing = deviceTokenMap.get(devKey);
+        if (!existing || new Date(t.lastUsed) > new Date(existing.lastUsed)) {
+          deviceTokenMap.set(devKey, t);
+        }
       });
-      const uniqueValidTokens = Array.from(uniqueTokensMap.values());
+      const uniqueValidTokens = Array.from(deviceTokenMap.values());
 
       const messaging = getMessaging();
       const invalidTokens = [];
@@ -102,18 +112,12 @@ class FirebaseService {
       
       // Remove all invalid tokens from DB immediately
       if (invalidTokens.length > 0) {
-        await this.removeFCMToken(userId, invalidTokens);
-        console.log(`Removed ${invalidTokens.length} invalid tokens for user ${userId}`);
+        await this.removeFCMToken(userIdStr, invalidTokens);
+        console.log(`Removed ${invalidTokens.length} invalid tokens for user ${userIdStr}`);
       }
 
       const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-      
-      // Mark as sent after successful delivery
-      if (successful > 0) {
-        this._markSent(userId, title, body, data);
-      }
-      
-      return { success: true, sent: successful, total: validTokens.length };
+      return { success: true, sent: successful, total: uniqueValidTokens.length };
     } catch (error) {
       console.error('Send notification error:', error);
       return { success: false, error: error.message };
@@ -121,8 +125,10 @@ class FirebaseService {
   }
 
   async sendMultipleNotifications(userIds, title, body, data = {}) {
+    // Deduplicate userIds first to prevent sending twice to same user
+    const uniqueUserIds = Array.from(new Set(userIds.map(id => id.toString())));
     const results = await Promise.all(
-      userIds.map(userId => this.sendNotification(userId, title, body, data))
+      uniqueUserIds.map(userId => this.sendNotification(userId, title, body, data))
     );
     return results;
   }
@@ -142,9 +148,13 @@ class FirebaseService {
   }
 
   async sendToAdminAndCounselors(title, body, data = {}) {
+    return this.sendToAllExceptEmployee(title, body, data);
+  }
+
+  async sendToAllExceptEmployee(title, body, data = {}) {
     const { ROLES } = require('../config/constants');
     const users = await User.find({ 
-      role: { $in: [ROLES.ADMIN, ROLES.COUNSELOR] } 
+      role: { $ne: ROLES.EMPLOYEE } 
     });
     const userIds = users.map(u => u._id);
     return this.sendMultipleNotifications(userIds, title, body, data);

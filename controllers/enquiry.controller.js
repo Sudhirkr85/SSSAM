@@ -72,25 +72,8 @@ class EnquiryController {
         status: req.body.status,
       };
       
-      // Notify assigned counselor
-      if (enquiry.assignedTo) {
-        await firebaseService.sendNotification(
-          enquiry.assignedTo._id,
-          `Enquiry ${statusText}`,
-          `${enquiry.name} - ${enquiry.mobile} has been ${statusText.toLowerCase()}`,
-          notificationData
-        );
-      } else {
-        // If unassigned, notify all counselors
-        await firebaseService.sendToAllCounselors(
-          `Enquiry ${statusText}`,
-          `${enquiry.name} - ${enquiry.mobile} has been ${statusText.toLowerCase()}`,
-          notificationData
-        );
-      }
-      
-      // Notify admin
-      await firebaseService.sendToAdmin(
+      // Notify admin and counselors (deduplicated)
+      await firebaseService.sendToAdminAndCounselors(
         `Enquiry ${statusText}`,
         `${enquiry.name} - ${enquiry.mobile} has been ${statusText.toLowerCase()}`,
         notificationData
