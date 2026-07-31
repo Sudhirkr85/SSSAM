@@ -5,7 +5,7 @@ const catchAsync = require('../utils/catchAsync');
 class NotificationController {
   saveFCMToken = catchAsync(async (req, res) => {
     const { token, deviceInfo } = req.body;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
     const result = await firebaseService.saveFCMToken(userId, token, deviceInfo || 'web');
 
@@ -18,7 +18,7 @@ class NotificationController {
 
   removeFCMToken = catchAsync(async (req, res) => {
     const { token } = req.body;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
     const result = await firebaseService.removeFCMToken(userId, token);
 
@@ -31,7 +31,7 @@ class NotificationController {
 
   // Get today's summary for login welcome popup
   getTodaySummary = catchAsync(async (req, res) => {
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
     const userRole = req.user.role;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
