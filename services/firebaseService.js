@@ -78,10 +78,10 @@ class FirebaseService {
         return { success: false, message: 'No valid FCM tokens' };
       }
 
-      // Group by deviceInfo and pick the most recent token per device to prevent multiple pushes to same phone
+      // Group by normalized deviceInfo and pick the most recent token per platform to prevent multiple pushes
       const deviceTokenMap = new Map();
       validTokens.forEach(t => {
-        const devKey = t.deviceInfo || 'web';
+        const devKey = (t.deviceInfo || 'web').trim().toLowerCase();
         const existing = deviceTokenMap.get(devKey);
         if (!existing || new Date(t.lastUsed) > new Date(existing.lastUsed)) {
           deviceTokenMap.set(devKey, t);
@@ -176,8 +176,11 @@ class FirebaseService {
         { $pull: { fcmTokens: { token: token } } }
       );
 
+      const normalizedPlatform = (deviceInfo || 'web').trim().toLowerCase();
+
       const existingToken = user.fcmTokens?.find(t => t.token === token);
       if (existingToken) {
+        existingToken.deviceInfo = normalizedPlatform;
         existingToken.lastUsed = new Date();
         existingToken.isValid = true;
         await user.save();
@@ -185,10 +188,13 @@ class FirebaseService {
       }
 
       if (!user.fcmTokens) user.fcmTokens = [];
+
+      // Prune any previous tokens for the exact same platform for this user
+      user.fcmTokens = user.fcmTokens.filter(t => (t.deviceInfo || 'web').trim().toLowerCase() !== normalizedPlatform);
       
       user.fcmTokens.push({
         token,
-        deviceInfo,
+        deviceInfo: normalizedPlatform,
         lastUsed: new Date(),
         isValid: true,
       });
