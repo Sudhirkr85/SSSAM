@@ -57,7 +57,7 @@ class AttendanceService {
     return R * c; // distance in meters
   }
 
-  // Punch IN/OUT
+  // Punch IN/OUT (First IN to Last OUT flow)
   async punch(userId, coords) {
     const { latitude, longitude } = coords;
     if (latitude === undefined || longitude === undefined) {
@@ -71,7 +71,7 @@ class AttendanceService {
       throw new AppError('You are too far from the office to punch in/out. Please try again from the office premises.', 400);
     }
 
-    // Determine type (IN/OUT) based on last record for today
+    // Determine state for today
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
@@ -83,11 +83,34 @@ class AttendanceService {
       timestamp: { $gte: startOfToday, $lte: endOfToday }
     }).sort({ timestamp: -1 });
 
+    // 1. If user previously punched OUT today and is now punching IN again:
+    // Clear the OUT record(s) so their status resumes to IN (preserving the day's first IN)
     if (lastAttendance && lastAttendance.type === 'OUT') {
-      throw new AppError('You have already completed your Punch In and Punch Out session for today. You cannot punch again today.', 400);
+      await Attendance.deleteMany({
+        userId,
+        type: 'OUT',
+        timestamp: { $gte: startOfToday, $lte: endOfToday }
+      });
+
+      // Find the first IN record for today
+      const firstInAttendance = await Attendance.findOne({
+        userId,
+        type: 'IN',
+        timestamp: { $gte: startOfToday, $lte: endOfToday }
+      }).sort({ timestamp: 1 });
+
+      if (firstInAttendance) {
+        return {
+          ...firstInAttendance.toObject(),
+          type: 'IN',
+          action: 'RESUMED_IN',
+          message: 'Punched back IN successfully! Previous Punch OUT cleared (shift resumed).'
+        };
+      }
     }
 
-    const punchType = (!lastAttendance) ? 'IN' : 'OUT';
+    // 2. If already IN, this punch is OUT; otherwise this punch is the first IN
+    const punchType = (lastAttendance && lastAttendance.type === 'IN') ? 'OUT' : 'IN';
 
     const attendance = await Attendance.create({
       userId,
