@@ -923,13 +923,13 @@ Return JSON: {"title": string, "content": string}`;
       return successResponse(res, { message: promptMsg, intent, language, action: null }, 'Enquiry details prompt');
     }
 
-    // ─── 7C. Interactive In-Chat Direct Admission Setup Wizard ───────────
+    // ─── 7. Direct Admission Wizard (Interactive Guided Flow) ───────────────
     else if (intent === 'add_admission_wizard') {
       const mobileMatch = query.match(/\b[6-9]\d{9}\b/);
       const mobile = mobileMatch ? mobileMatch[0] : null;
 
       let name = null;
-      const queryWithoutFillers = query.replace(/\b(student|mobile|phone|course|fees|down|payment|haan|confirm|save|yes|add|enquiry|enqry|admission|setup)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+      const queryWithoutFillers = query.replace(/\b(student|mobile|phone|course|fees|down|payment|haan|confirm|save|yes|add|enquiry|enqry|admission|setup|abhi|baanki|baki|dega|kab)\b/gi, ' ').replace(/\s+/g, ' ').trim();
       const nameMatch = query.match(/(?:name|naam)\s+(?:is|hai|=|:)?\s*([a-zA-Z\s]{2,30})/i)
         || queryWithoutFillers.match(/^([a-zA-Z\s]{2,30})\s+[6-9]\d{9}/)
         || queryWithoutFillers.match(/^([a-zA-Z\s]{2,30})/);
@@ -942,6 +942,30 @@ Return JSON: {"title": string, "content": string}`;
       const feeMatches = query.match(/\b\d{3,6}\b/g) || [];
       const totalFees = feeMatches.length >= 1 ? parseInt(feeMatches[0]) : null;
       const downPayment = feeMatches.length >= 2 ? parseInt(feeMatches[1]) : 0;
+      const remainingAmount = totalFees ? Math.max(0, totalFees - downPayment) : 0;
+
+      // Extract Payment Mode
+      let paymentMode = 'CASH';
+      if (/\b(upi|online|gpay|phonepe|paytm)\b/i.test(query)) paymentMode = 'UPI';
+      else if (/\b(card|debit|credit)\b/i.test(query)) paymentMode = 'CARD';
+      else if (/\b(bank|transfer|neft|rtgs)\b/i.test(query)) paymentMode = 'BANK_TRANSFER';
+
+      // Extract Due Date for remaining fee (Baanki Kab Dega)
+      let remainingDueDate = new Date();
+      remainingDueDate.setDate(remainingDueDate.getDate() + 30); // Default 30 days
+      const dateMatch = query.match(/\b(\d{1,2})\s*(st|nd|rd|th)?\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i);
+      if (dateMatch) {
+        const day = parseInt(dateMatch[1]);
+        remainingDueDate.setDate(day);
+      }
+
+      // Check validation error: downPayment > totalFees
+      if (totalFees && downPayment > totalFees) {
+        const errorPrompt = language === 'hindi'
+          ? `⚠️ **Fee Amount Error!**\n\nAbhi ki payment (₹${downPayment.toLocaleString('en-IN')}) Total Fees (₹${totalFees.toLocaleString('en-IN')}) se zyada nahi ho sakti!\n\nPlease sahi details dobara bhejein:\n1️⃣ **Student Name**\n2️⃣ **10-Digit Mobile**\n3️⃣ **Course**\n4️⃣ **Total Fees** & **Down Payment (Abhi kitna dega)**`
+          : `⚠️ **Invalid Fee Calculation!**\n\nDown payment (₹${downPayment.toLocaleString('en-IN')}) cannot be greater than Total Fees (₹${totalFees.toLocaleString('en-IN')})!\n\nPlease re-enter the correct student details:`;
+        return successResponse(res, { message: errorPrompt, intent, language, action: null }, 'Invalid fee values');
+      }
 
       const isConfirm = /\b(confirm|haan|yes|save|ok|sahi|kar do|kardo|kr do)\b/i.test(query);
 
@@ -953,28 +977,36 @@ Return JSON: {"title": string, "content": string}`;
             course: course || 'General',
             totalFees,
             registrationAmount: downPayment,
-            paymentMode: 'CASH',
-            admissionDate: new Date().toISOString().split('T')[0]
+            paymentMode,
+            paymentDate: new Date().toISOString().split('T')[0],
+            paymentType: remainingAmount > 0 ? 'INSTALLMENT' : 'ONE_TIME',
+            fullPaymentDueDate: remainingDueDate.toISOString().split('T')[0],
+            installments: remainingAmount > 0 ? [
+              { amount: remainingAmount, dueDate: remainingDueDate.toISOString().split('T')[0] }
+            ] : []
           };
           const newAdm = await admissionService.createAdmission(admissionData, req.user || { name: 'Admin', id: 'admin' });
           const successMsg = language === 'hindi'
-            ? `🎓 **Direct Admission Successfully Completed!** 🎉\n\n- **Student Name:** ${name}\n- **Mobile:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Down Payment:** ₹${downPayment.toLocaleString('en-IN')}\n\nAap Admissions tab par new record dekh sakte hain!`
-            : `🎓 **Direct Admission Created Successfully!** 🎉\n\n- **Student Name:** ${name}\n- **Mobile:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Down Payment:** ₹${downPayment.toLocaleString('en-IN')}\n\nYou can view the new admission in the Admissions table!`;
+            ? `🎓 **Direct Admission Successfully Completed!** 🎉\n\n- **Student Name:** ${name}\n- **Mobile:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Abhi Paid (Down Payment):** ₹${downPayment.toLocaleString('en-IN')} (${paymentMode})\n- **Baanki Amount:** ₹${remainingAmount.toLocaleString('en-IN')}${remainingAmount > 0 ? ` (Due: ${remainingDueDate.toLocaleDateString('en-IN')})` : ''}\n\nAap Admissions tab par new record dekh sakte hain!`
+            : `🎓 **Direct Admission Created Successfully!** 🎉\n\n- **Student Name:** ${name}\n- **Mobile:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Paid Now:** ₹${downPayment.toLocaleString('en-IN')} (${paymentMode})\n- **Remaining Due:** ₹${remainingAmount.toLocaleString('en-IN')}${remainingAmount > 0 ? ` (Due: ${remainingDueDate.toLocaleDateString('en-IN')})` : ''}\n\nYou can view the new admission in the Admissions table!`;
           return successResponse(res, { message: successMsg, intent, language, action: null }, 'Admission created');
         } catch (e) {
           console.error('Admission creation error:', e);
+          const retryMsg = language === 'hindi'
+            ? `⚠️ **Admission Save Error:** ${e.message || 'Details verify nahi ho pai'}\n\nPlease student details dobara bhejein:\n1️⃣ **Student Name**\n2️⃣ **10-Digit Mobile**\n3️⃣ **Course**\n4️⃣ **Total Fees** & **Down Payment**`
+            : `⚠️ **Admission Save Failed:** ${e.message || 'Could not process details'}\n\nPlease enter the correct details to try again:`;
+          return successResponse(res, { message: retryMsg, intent, language, action: null }, 'Admission save retry prompt');
         }
       }
 
       if (name && mobile && totalFees) {
         const confirmMsg = language === 'hindi'
-          ? `📝 **Confirm Direct Admission Details**\n\n- **Student Name:** ${name}\n- **Mobile Number:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Down Payment:** ₹${downPayment.toLocaleString('en-IN')}\n\nKya main ye Direct Admission save kar doon? Reply **Haan** ya **Confirm** to save!`
-          : `📝 **Confirm Direct Admission Details**\n\n- **Student Name:** ${name}\n- **Mobile Number:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Down Payment:** ₹${downPayment.toLocaleString('en-IN')}\n\nWould you like me to save this Admission? Reply **Confirm** or **Yes** to save!`;
+          ? `📝 **Confirm Direct Admission & Fee Details**\n\n- **Student Name:** ${name}\n- **Mobile Number:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Abhi Kitna Dega (Down Payment):** ₹${downPayment.toLocaleString('en-IN')} (${paymentMode})\n- **Baanki Kitna Hai:** ₹${remainingAmount.toLocaleString('en-IN')}${remainingAmount > 0 ? ` (Due: ${remainingDueDate.toLocaleDateString('en-IN')})` : ' (Full Paid)'}\n\nKya main ye Direct Admission save kar doon? Reply **Haan** ya **Confirm** to save!`
+          : `📝 **Confirm Direct Admission & Fee Details**\n\n- **Student Name:** ${name}\n- **Mobile Number:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Paying Now:** ₹${downPayment.toLocaleString('en-IN')} (${paymentMode})\n- **Remaining Due:** ₹${remainingAmount.toLocaleString('en-IN')}${remainingAmount > 0 ? ` (Due: ${remainingDueDate.toLocaleDateString('en-IN')})` : ' (Fully Paid)'}\n\nWould you like me to save this Admission? Reply **Confirm** or **Yes** to save!`;
         return successResponse(res, { message: confirmMsg, intent, language, action: null }, 'Admission details confirmation');
       }
 
       const promptMsg = language === 'hindi'
-        ? `🎓 **Direct Admission Setup**\n\nPehle batayein — kya student ki pehle se Enquiry hai?\n- Agar haan, toh student ka **Name** ya **Mobile Number** batayein.\n- Agar Direct Walk-In hai, toh details batayein:\n\n1️⃣ **Student Name**\n2️⃣ **10-Digit Mobile**\n3️⃣ **Course**\n4️⃣ **Total Fees** & **Down Payment**\n\nExample type karein: *"Aarav Sharma 9876543210 Tally Prime Total Fees 15000 Down Payment 5000"*`
         : `🎓 **Direct Admission Setup**\n\nPlease specify if this is an existing Enquiry or a Direct Walk-In:\n\n1️⃣ **Student Name**\n2️⃣ **10-Digit Mobile**\n3️⃣ **Course**\n4️⃣ **Total Fees** & **Down Payment**\n\nExample: *"Aarav Sharma 9876543210 Tally Prime Total Fees 15000 Down Payment 5000"*`;
       return successResponse(res, { message: promptMsg, intent, language, action: null }, 'Admission details prompt');
     }
