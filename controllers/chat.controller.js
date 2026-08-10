@@ -1,4 +1,5 @@
 const { Enquiry, Admission, Payment, Note, Attendance, User } = require('../models');
+const admissionService = require('../services/admission.service');
 const { formatCRMResponse, parseJSONResponse } = require('../services/geminiService');
 const catchAsync = require('../utils/catchAsync');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
@@ -6,6 +7,18 @@ const { successResponse, errorResponse } = require('../utils/responseHelper');
 // Intelligent intent detection from user query
 function detectIntent(query) {
   const q = query.toLowerCase().trim();
+
+  // 0A. Add Enquiry Wizard intent
+  if (/\b(enqry add|add enquiry|enquiry add|nayi enquiry|new enquiry add|enquiry create|enquiry dalo|enquiry dakhil)\b/i.test(q) ||
+      ((q.includes('enquiry') || q.includes('enqry')) && (q.includes('add') || q.includes('karna') || q.includes('kru') || q.includes('banao') || q.includes('dalo') || q.includes('mang') || q.includes('confirm') || q.includes('save')))) {
+    return 'add_enquiry_wizard';
+  }
+
+  // 0B. Add Admission Wizard intent
+  if (/\b(admionss setup|admission setup|admisn setup|direct admission|add admission|admission create|admission dalo|admission banao|admission setup kru)\b/i.test(q) ||
+      ((q.includes('admission') || q.includes('admionss') || q.includes('admisn')) && (q.includes('setup') || q.includes('add') || q.includes('kru') || q.includes('karna') || q.includes('banao') || q.includes('puch') || q.includes('confirm') || q.includes('save')))) {
+    return 'add_admission_wizard';
+  }
 
   // 1. Mobile number detection (10 digit starting with 6-9)
   if (/\b[6-9]\d{9}\b/.test(q)) {
@@ -32,7 +45,7 @@ function detectIntent(query) {
   }
 
   // 5. Attendance Report intent
-  if (/\b(attendance|hajri|hazri|punch|punches|kon aaya|who came|who is present|who is absent|leave|weekoff|उपस्थिति|हाजिरी)\b/.test(q)) {
+  if (/\b(att[a-z]*n[a-z]*c[a-z]*|attendance|attance|attadnace|atendance|attandance|attendence|hajri|hazri|punch|punches|kon aaya|who came|who is present|who is absent|leave|weekoff|उपस्थिति|हाजिरी)\b/i.test(q)) {
     return 'attendance_report';
   }
 
@@ -56,9 +69,10 @@ function detectIntent(query) {
     return 'get_notes';
   }
 
-  // 8. Update status intent (e.g. Rahul ko CONVERTED kar do)
-  if (/\b(status|converted|interested|not interested|no response|contacted|admission process)\b/.test(q) &&
-      (/\b(kar do|kardo|kr do|set|change|update|mark|banao|kar|kro|kr)\b/.test(q) || q.includes('kar') || q.includes('set') || q.includes('update') || q.includes('change'))) {
+  // 8. Update status intent (e.g. Rahul ka status update karo / Vikram status INTERESTED)
+  if (/\b(status update|update status|status change|change status|status set|status mark|status dalo|status shift|followup change|change followup)\b/i.test(q) ||
+      (/\b(status|converted|not interested|no response|contacted|admission process)\b/i.test(q) &&
+       (/\b(kar do|kardo|kr do|set|change|update|mark|banao|kar|kro|kr|dalo|shift|rakho|kal|tomorrow)\b/i.test(q) || q.includes('status') || q.includes('update') || q.includes('change')))) {
     return 'update_status';
   }
 
@@ -81,8 +95,8 @@ function detectIntent(query) {
   }
 
   // 11. Pending & Upcoming fee intent
-  if (/\b(pending fee|pending fees|due fee|due fees|baki fees|unpaid|installment|installments|fees due|fee pending|kiska fee|fee aayega|fee baki|fees baki|kitna baki|banki|upcoming fee|upcoming fees|date wise|datewise|aane wala fee)\b/.test(q) ||
-      ((q.includes('fee') || q.includes('fees')) && (q.includes('baki') || q.includes('banki') || q.includes('due') || q.includes('aayega') || q.includes('aane') || q.includes('ane') || q.includes('kitna')))) {
+  if (/\b(pending fee|pending fees|due fee|due fees|baki fees|unpaid|installment|installments|fees due|fee pending|kiska fee|fee aayega|fee baki|fees baki|kitna baki|banki|upcoming fee|upcoming fees|date wise|datewise|aane wala fee|fees date|fess date|fees kab|fess kab|fee kab|kab aayega|kab h)\b/i.test(q) ||
+      ((q.includes('fee') || q.includes('fees') || q.includes('fess') || q.includes('fiis')) && (q.includes('baki') || q.includes('banki') || q.includes('due') || q.includes('aayega') || q.includes('aane') || q.includes('ane') || q.includes('kitna') || q.includes('kab') || q.includes('date') || q.includes('h') || q.includes('hai')))) {
     return 'pending_fee';
   }
 
@@ -97,8 +111,20 @@ function detectIntent(query) {
   }
 
   // 14. Interested leads intent
-  if (/\b(interested|interested leads|hot leads|interested enquiries|interested student)\b/.test(q)) {
+  if (/\b(interested leads|hot leads|interested enquiries|interested student|interested list|show interested)\b/i.test(q)) {
     return 'interested_leads';
+  }
+
+  // 14A. Add Enquiry Wizard intent
+  if (/\b(enqry add|add enquiry|enquiry add|nayi enquiry|new enquiry add|enquiry create|enquiry dalo|enquiry dakhil)\b/i.test(q) ||
+      ((q.includes('enquiry') || q.includes('enqry')) && (q.includes('add') || q.includes('karna') || q.includes('kru') || q.includes('banao') || q.includes('dalo') || q.includes('mang')))) {
+    return 'add_enquiry_wizard';
+  }
+
+  // 14B. Add Admission Wizard intent
+  if (/\b(admionss setup|admission setup|admisn setup|direct admission|add admission|admission create|admission dalo|admission banao|admission setup kru)\b/i.test(q) ||
+      ((q.includes('admission') || q.includes('admionss') || q.includes('admisn')) && (q.includes('setup') || q.includes('add') || q.includes('kru') || q.includes('karna') || q.includes('banao') || q.includes('puch')))) {
+    return 'add_admission_wizard';
   }
 
   // 15. New enquiries intent
@@ -163,7 +189,7 @@ function extractSearchTerm(query, intent) {
 
   if (intent === 'pending_fee') {
     const cleaned = q
-      .replace(/\b(pending|fees|fee|due|installments|installment|baki|banki|kitna|kitne|aaj|today|aj|upcoming|date|wise|datewise|aayega|aane|ane|wala|waala|kiska|kiskaa|kiskka|kiske|batao|dikhao|ka|ki|ke|ko|hai|h|show|list|all|sab|student|leads|lead|info|details|record)\b/gi, '')
+      .replace(/\b(pending|fees|fee|fess|fiis|due|installments|installment|baki|banki|kitna|kitne|aaj|today|aj|upcoming|date|wise|datewise|aayega|aaya|aayengi|aane|ane|wala|waala|kab|kabka|kabse|kiska|kiskaa|kiskka|kiske|batao|dikhao|ka|ki|ke|ko|hai|h|show|list|all|sab|student|leads|lead|info|details|record)\b/gi, '')
       .replace(/[?।,!]/g, '')
       .trim();
     if (!cleaned || cleaned.length < 2) return null;
@@ -556,85 +582,142 @@ Return JSON: {"title": string, "content": string}`;
         return successResponse(res, { message: accessDeniedMsg, intent, language, action: null }, 'Access denied');
       }
 
-      const { start, end } = getTodayRange();
+      const isMonth = /\b(month|mahina|mahine|is month|this month|monthly|puro|pure)\b/i.test(query);
+      const { start, end } = isMonth ? getMonthRange() : getTodayRange();
+
       const allUsers = await User.find({ status: { $ne: 'INACTIVE' } }).select('name email role mobile').lean();
-      const todayPunches = await Attendance.find({
+
+      // Check if a specific staff name is mentioned (e.g. "sudhir")
+      const mentionedName = allUsers.find(u =>
+        u.name && query.toLowerCase().includes(u.name.toLowerCase().split(' ')[0])
+      );
+
+      const filterUsers = mentionedName ? [mentionedName] : allUsers;
+      const userIds = filterUsers.map(u => u._id);
+
+      const punches = await Attendance.find({
+        userId: { $in: userIds },
         timestamp: { $gte: start, $lte: end }
       })
         .populate('userId', 'name role mobile')
         .sort({ timestamp: 1 })
         .lean();
 
-      const userPunchMap = {};
-      todayPunches.forEach((p) => {
-        const uId = p.userId?._id?.toString() || p.userId?.toString();
-        if (!userPunchMap[uId]) {
-          userPunchMap[uId] = { in: null, out: null, leave: false, weekoff: false };
-        }
-        if (p.type === 'IN' && !userPunchMap[uId].in) {
-          userPunchMap[uId].in = p.timestamp;
-        } else if (p.type === 'OUT') {
-          userPunchMap[uId].out = p.timestamp;
-        } else if (p.type === 'LEAVE') {
-          userPunchMap[uId].leave = true;
-        } else if (p.type === 'WEEKOFF') {
-          userPunchMap[uId].weekoff = true;
-        }
-      });
+      if (isMonth) {
+        // Monthly Summary per staff
+        const userStats = {};
+        filterUsers.forEach(u => {
+          userStats[u._id.toString()] = {
+            name: u.name,
+            role: u.role,
+            mobile: u.mobile,
+            presentDays: new Set(),
+            leaveDays: new Set(),
+            weekoffDays: new Set(),
+            totalPunches: 0
+          };
+        });
 
-      let presentCount = 0;
-      let absentCount = 0;
-      let leaveCount = 0;
-      let weekoffCount = 0;
+        punches.forEach(p => {
+          const uId = p.userId?._id?.toString() || p.userId?.toString();
+          if (userStats[uId]) {
+            const dayKey = new Date(p.timestamp).toISOString().split('T')[0];
+            userStats[uId].totalPunches++;
+            if (p.type === 'IN' || p.type === 'OUT') userStats[uId].presentDays.add(dayKey);
+            if (p.type === 'LEAVE') userStats[uId].leaveDays.add(dayKey);
+            if (p.type === 'WEEKOFF') userStats[uId].weekoffDays.add(dayKey);
+          }
+        });
 
-      const staffList = allUsers.map((u) => {
-        const p = userPunchMap[u._id.toString()];
-        let status = 'ABSENT';
-        let inTime = null;
-        let outTime = null;
+        const monthlySummary = Object.values(userStats).map(s => ({
+          name: s.name,
+          role: s.role,
+          mobile: s.mobile,
+          presentDaysCount: s.presentDays.size,
+          leaveDaysCount: s.leaveDays.size,
+          weekoffDaysCount: s.weekoffDays.size
+        }));
 
-        if (p) {
-          if (p.leave) {
-            status = 'LEAVE';
-            leaveCount++;
-          } else if (p.weekoff) {
-            status = 'WEEKOFF';
-            weekoffCount++;
-          } else if (p.in) {
-            status = p.out ? 'PUNCHED OUT' : 'PRESENT (IN)';
-            presentCount++;
-            inTime = new Date(p.in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-            if (p.out) {
-              outTime = new Date(p.out).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        dbData = {
+          type: 'monthly_attendance_report',
+          period: `This Month (${start.toLocaleDateString('en-IN')} to ${end.toLocaleDateString('en-IN')})`,
+          filterTarget: mentionedName ? mentionedName.name : 'All Staff',
+          summary: monthlySummary
+        };
+        contextHint = `Monthly Staff Attendance Report (${start.toLocaleDateString('en-IN')} to ${end.toLocaleDateString('en-IN')}) for ${mentionedName ? mentionedName.name : 'All Staff'}`;
+      } else {
+        // Daily Summary
+        const userPunchMap = {};
+        punches.forEach((p) => {
+          const uId = p.userId?._id?.toString() || p.userId?.toString();
+          if (!userPunchMap[uId]) {
+            userPunchMap[uId] = { in: null, out: null, leave: false, weekoff: false };
+          }
+          if (p.type === 'IN' && !userPunchMap[uId].in) {
+            userPunchMap[uId].in = p.timestamp;
+          } else if (p.type === 'OUT') {
+            userPunchMap[uId].out = p.timestamp;
+          } else if (p.type === 'LEAVE') {
+            userPunchMap[uId].leave = true;
+          } else if (p.type === 'WEEKOFF') {
+            userPunchMap[uId].weekoff = true;
+          }
+        });
+
+        let presentCount = 0;
+        let absentCount = 0;
+        let leaveCount = 0;
+        let weekoffCount = 0;
+
+        const staffList = filterUsers.map((u) => {
+          const p = userPunchMap[u._id.toString()];
+          let status = 'ABSENT';
+          let inTime = null;
+          let outTime = null;
+
+          if (p) {
+            if (p.leave) {
+              status = 'LEAVE';
+              leaveCount++;
+            } else if (p.weekoff) {
+              status = 'WEEKOFF';
+              weekoffCount++;
+            } else if (p.in) {
+              status = p.out ? 'PUNCHED OUT' : 'PRESENT (IN)';
+              presentCount++;
+              inTime = new Date(p.in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+              if (p.out) {
+                outTime = new Date(p.out).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+              }
+            } else {
+              absentCount++;
             }
           } else {
             absentCount++;
           }
-        } else {
-          absentCount++;
-        }
 
-        return {
-          name: u.name,
-          role: u.role,
-          mobile: u.mobile,
-          status,
-          inTime,
-          outTime
+          return {
+            name: u.name,
+            role: u.role,
+            mobile: u.mobile,
+            status,
+            inTime,
+            outTime
+          };
+        });
+
+        dbData = {
+          type: 'attendance_report',
+          date: new Date().toLocaleDateString('en-IN'),
+          totalStaff: filterUsers.length,
+          present: presentCount,
+          absent: absentCount,
+          onLeave: leaveCount,
+          weekoff: weekoffCount,
+          staff: staffList
         };
-      });
-
-      dbData = {
-        type: 'attendance_report',
-        date: new Date().toLocaleDateString('en-IN'),
-        totalStaff: allUsers.length,
-        present: presentCount,
-        absent: absentCount,
-        onLeave: leaveCount,
-        weekoff: weekoffCount,
-        staff: staffList
-      };
-      contextHint = `Today's Staff Attendance Report for ${new Date().toLocaleDateString('en-IN')}: Total ${allUsers.length}, Present ${presentCount}, Absent ${absentCount}, Leave ${leaveCount}`;
+        contextHint = `Today's Staff Attendance Report for ${new Date().toLocaleDateString('en-IN')}: Total ${filterUsers.length}, Present ${presentCount}, Absent ${absentCount}, Leave ${leaveCount}`;
+      }
     }
 
     // ─── 4B. Payment & Fee Collection Report ───────────────────────────────
@@ -790,6 +873,112 @@ Return JSON: {"title": string, "content": string}`;
         : `Today's follow-up task list for ${new Date().toLocaleDateString('en-IN')}`;
     }
 
+    // ─── 7B. Interactive In-Chat Add Enquiry Wizard ──────────────────────
+    else if (intent === 'add_enquiry_wizard') {
+      const mobileMatch = query.match(/\b[6-9]\d{9}\b/);
+      const mobile = mobileMatch ? mobileMatch[0] : null;
+
+      let name = null;
+      const queryWithoutFillers = query.replace(/\b(student|mobile|phone|course|fees|down|payment|haan|confirm|save|yes|add|karo|kardo|krdo|kr|enquiry|enqry|admission|setup)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+      const nameMatch = query.match(/(?:name|naam)\s+(?:is|hai|=|:)?\s*([a-zA-Z\s]{2,30})/i)
+        || queryWithoutFillers.match(/^([a-zA-Z\s]{2,30})\s+[6-9]\d{9}/)
+        || queryWithoutFillers.match(/^([a-zA-Z\s]{2,30})/);
+      if (nameMatch) name = nameMatch[1].trim();
+
+      let course = null;
+      const courseMatch = query.match(/(?:course|subject)\s+(?:is|hai|=|:)?\s*([a-zA-Z0-9\s]{2,30})/i)
+        || query.match(/\b(tally|dca|bca|mca|python|java|web dev|excel|c\+\+|graphic|tally prime)\b/i);
+      if (courseMatch) course = courseMatch[1] ? courseMatch[1].replace(/\b(haan|confirm|yes|save)\b/gi, '').trim() : courseMatch[0];
+
+      const isConfirm = /\b(confirm|haan|yes|save|ok|sahi|kar do|kardo|kr do)\b/i.test(query);
+
+      if (name && mobile && isConfirm) {
+        try {
+          const newEnquiry = await Enquiry.create({
+            name,
+            mobile,
+            course: course || 'General',
+            assignedTo: req.user ? req.user.id : null,
+            status: 'INTERESTED'
+          });
+          const successMsg = language === 'hindi'
+            ? `✅ **Nayi Enquiry Successfully Save Ho Gayi!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n- **Status:** INTERESTED\n\nAap CRM Enquiries list mein ise dekh sakte hain!`
+            : `✅ **New Enquiry Saved Successfully!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n\nYou can view it in the Enquiries list!`;
+          return successResponse(res, { message: successMsg, intent, language, action: null }, 'Enquiry created');
+        } catch (e) {
+          console.error('Enquiry creation error:', e);
+        }
+      }
+
+      if (name && mobile) {
+        const confirmMsg = language === 'hindi'
+          ? `📝 **Enquiry Details Confirmation**\n\n- **Student Name:** ${name}\n- **Mobile Number:** ${mobile}\n- **Course:** ${course || 'General'}\n\nKya main ye Enquiry Database mein save kar doon? Reply **Haan** ya **Confirm** to save!`
+          : `📝 **Confirm Enquiry Details**\n\n- **Student Name:** ${name}\n- **Mobile Number:** ${mobile}\n- **Course:** ${course || 'General'}\n\nWould you like me to save this Enquiry? Reply **Confirm** or **Yes** to save!`;
+        return successResponse(res, { message: confirmMsg, intent, language, action: null }, 'Enquiry details confirmation');
+      }
+
+      const promptMsg = language === 'hindi'
+        ? `➕ **Nayi Enquiry Add Karein**\n\nKripya student ki details batayein:\n\n1️⃣ **Student Full Name**\n2️⃣ **10-Digit Mobile Number**\n3️⃣ **Course Interested**\n\nExample type karein: *"Aarav Sharma 9876543210 Tally Prime"*`
+        : `➕ **Add New Enquiry**\n\nPlease provide the student details:\n\n1️⃣ **Student Full Name**\n2️⃣ **10-Digit Mobile Number**\n3️⃣ **Course Interested**\n\nExample: *"Aarav Sharma 9876543210 Tally Prime"*`;
+      return successResponse(res, { message: promptMsg, intent, language, action: null }, 'Enquiry details prompt');
+    }
+
+    // ─── 7C. Interactive In-Chat Direct Admission Setup Wizard ───────────
+    else if (intent === 'add_admission_wizard') {
+      const mobileMatch = query.match(/\b[6-9]\d{9}\b/);
+      const mobile = mobileMatch ? mobileMatch[0] : null;
+
+      let name = null;
+      const queryWithoutFillers = query.replace(/\b(student|mobile|phone|course|fees|down|payment|haan|confirm|save|yes|add|enquiry|enqry|admission|setup)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+      const nameMatch = query.match(/(?:name|naam)\s+(?:is|hai|=|:)?\s*([a-zA-Z\s]{2,30})/i)
+        || queryWithoutFillers.match(/^([a-zA-Z\s]{2,30})\s+[6-9]\d{9}/)
+        || queryWithoutFillers.match(/^([a-zA-Z\s]{2,30})/);
+      if (nameMatch) name = nameMatch[1].trim();
+
+      let course = null;
+      const courseMatch = query.match(/\b(tally|dca|bca|mca|python|java|web dev|excel|c\+\+|graphic|tally prime)\b/i);
+      if (courseMatch) course = courseMatch[0];
+
+      const feeMatches = query.match(/\b\d{3,6}\b/g) || [];
+      const totalFees = feeMatches.length >= 1 ? parseInt(feeMatches[0]) : null;
+      const downPayment = feeMatches.length >= 2 ? parseInt(feeMatches[1]) : 0;
+
+      const isConfirm = /\b(confirm|haan|yes|save|ok|sahi|kar do|kardo|kr do)\b/i.test(query);
+
+      if (name && mobile && totalFees && isConfirm) {
+        try {
+          const admissionData = {
+            name,
+            mobile,
+            course: course || 'General',
+            totalFees,
+            registrationAmount: downPayment,
+            paymentMode: 'CASH',
+            admissionDate: new Date().toISOString().split('T')[0]
+          };
+          const newAdm = await admissionService.createAdmission(admissionData, req.user || { name: 'Admin', id: 'admin' });
+          const successMsg = language === 'hindi'
+            ? `🎓 **Direct Admission Successfully Completed!** 🎉\n\n- **Student Name:** ${name}\n- **Mobile:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Down Payment:** ₹${downPayment.toLocaleString('en-IN')}\n\nAap Admissions tab par new record dekh sakte hain!`
+            : `🎓 **Direct Admission Created Successfully!** 🎉\n\n- **Student Name:** ${name}\n- **Mobile:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Down Payment:** ₹${downPayment.toLocaleString('en-IN')}\n\nYou can view the new admission in the Admissions table!`;
+          return successResponse(res, { message: successMsg, intent, language, action: null }, 'Admission created');
+        } catch (e) {
+          console.error('Admission creation error:', e);
+        }
+      }
+
+      if (name && mobile && totalFees) {
+        const confirmMsg = language === 'hindi'
+          ? `📝 **Confirm Direct Admission Details**\n\n- **Student Name:** ${name}\n- **Mobile Number:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Down Payment:** ₹${downPayment.toLocaleString('en-IN')}\n\nKya main ye Direct Admission save kar doon? Reply **Haan** ya **Confirm** to save!`
+          : `📝 **Confirm Direct Admission Details**\n\n- **Student Name:** ${name}\n- **Mobile Number:** ${mobile}\n- **Course:** ${course || 'General'}\n- **Total Fees:** ₹${totalFees.toLocaleString('en-IN')}\n- **Down Payment:** ₹${downPayment.toLocaleString('en-IN')}\n\nWould you like me to save this Admission? Reply **Confirm** or **Yes** to save!`;
+        return successResponse(res, { message: confirmMsg, intent, language, action: null }, 'Admission details confirmation');
+      }
+
+      const promptMsg = language === 'hindi'
+        ? `🎓 **Direct Admission Setup**\n\nPehle batayein — kya student ki pehle se Enquiry hai?\n- Agar haan, toh student ka **Name** ya **Mobile Number** batayein.\n- Agar Direct Walk-In hai, toh details batayein:\n\n1️⃣ **Student Name**\n2️⃣ **10-Digit Mobile**\n3️⃣ **Course**\n4️⃣ **Total Fees** & **Down Payment**\n\nExample type karein: *"Aarav Sharma 9876543210 Tally Prime Total Fees 15000 Down Payment 5000"*`
+        : `🎓 **Direct Admission Setup**\n\nPlease specify if this is an existing Enquiry or a Direct Walk-In:\n\n1️⃣ **Student Name**\n2️⃣ **10-Digit Mobile**\n3️⃣ **Course**\n4️⃣ **Total Fees** & **Down Payment**\n\nExample: *"Aarav Sharma 9876543210 Tally Prime Total Fees 15000 Down Payment 5000"*`;
+      return successResponse(res, { message: promptMsg, intent, language, action: null }, 'Admission details prompt');
+    }
+
     // ─── 8. Pending & Upcoming Fees (Intelligent Fee Assistant) ─────────────
     else if (intent === 'pending_fee') {
       const qLower = query.toLowerCase();
@@ -881,39 +1070,107 @@ Return JSON: {"title": string, "content": string}`;
       }
     }
 
-    // ─── Direct Status Update via Chat (Guided Confirmation + Remarks) ─────────
+    // ─── Direct Status Update via Chat (Guided In-Chat Wizard) ─────────
     else if (intent === 'update_status') {
       const qLower = query.toLowerCase();
-      let targetStatus = 'CONVERTED';
+
+      // Extract target status
+      let targetStatus = null;
       if (qLower.includes('converted')) targetStatus = 'CONVERTED';
-      else if (qLower.includes('interested')) targetStatus = 'INTERESTED';
-      else if (qLower.includes('not interested')) targetStatus = 'NOT_INTERESTED';
-      else if (qLower.includes('no response')) targetStatus = 'NO_RESPONSE';
+      else if (qLower.includes('not interested') || qLower.includes('not_interested')) targetStatus = 'NOT_INTERESTED';
+      else if (qLower.includes('no response') || qLower.includes('no_response')) targetStatus = 'NO_RESPONSE';
       else if (qLower.includes('contacted')) targetStatus = 'CONTACTED';
       else if (qLower.includes('admission')) targetStatus = 'ADMISSION_PROCESS';
+      else if (qLower.includes('interested')) targetStatus = 'INTERESTED';
 
-      let studentName = extractSearchTerm(query, 'record_search') || '';
-      studentName = studentName
-        .replace(/\b(status|converted|interested|not interested|no response|contacted|admission|process|kar|do|kardo|kr|set|change|update|mark|banao)\b/gi, '')
-        .trim();
+      // Extract student name or mobile
+      const mobileMatch = query.match(/\b[6-9]\d{9}\b/);
+      let studentTerm = mobileMatch ? mobileMatch[0] : null;
 
-      if (studentName && studentName.length >= 2) {
-        const enquiry = await Enquiry.findOne({ name: { $regex: studentName, $options: 'i' } });
-        if (enquiry) {
-          action = {
-            type: 'status_update_prompt',
-            enquiryId: enquiry._id,
-            name: enquiry.name,
-            currentStatus: enquiry.status,
-            newStatus: targetStatus
-          };
-          dbData = { type: 'status_update_prompt', name: enquiry.name, currentStatus: enquiry.status, newStatus: targetStatus };
-          contextHint = `Found enquiry "${enquiry.name}". Confirm if user wants to update status from "${enquiry.status}" to "${targetStatus}" and ask if they want to add a remark/note before saving to database.`;
-        } else {
-          dbData = { type: 'status_update_failed', searchedName: studentName };
-          contextHint = `Could not find any enquiry matching "${studentName}" to update status.`;
+      if (!studentTerm) {
+        studentTerm = query
+          .replace(/\b(status|update|change|set|mark|kar|do|kardo|krdo|kr|banao|nayi|next|followup|follow-up|follow|up|date|kal|tomorrow|august|september|october|november|december|january|february|march|april|may|june|july|aug|sep|oct|nov|dec|converted|interested|not|no|response|contacted|admission|process|haan|confirm|yes|save)\b/gi, ' ')
+          .replace(/[?।,!]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (studentTerm.length < 2) studentTerm = null;
+      }
+
+      // Extract follow up date
+      let targetDate = null;
+      if (qLower.includes('tomorrow') || qLower.includes('kal')) {
+        targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() + 1);
+      } else {
+        const dateMatch = query.match(/\b(\d{1,2})\s*(st|nd|rd|th)?\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)?\b/i);
+        if (dateMatch) {
+          targetDate = new Date();
+          const day = parseInt(dateMatch[1]);
+          targetDate.setDate(day);
         }
       }
+
+      // Check confirmation
+      const isConfirm = /\b(confirm|haan|yes|save|ok|sahi|kar do|kardo|kr do)\b/i.test(query);
+
+      // Search DB for Enquiry if studentTerm provided
+      let enquiry = null;
+      if (studentTerm) {
+        enquiry = await Enquiry.findOne({
+          $or: [
+            { name: { $regex: studentTerm, $options: 'i' } },
+            { mobile: { $regex: studentTerm, $options: 'i' } }
+          ]
+        });
+      }
+
+      // Case A: Everything present + confirmed -> Execute Update!
+      if (enquiry && targetStatus && isConfirm) {
+        const oldStatus = enquiry.status;
+        enquiry.status = targetStatus;
+        if (targetDate) enquiry.followUpDate = targetDate;
+
+        if (!enquiry.statusHistory) enquiry.statusHistory = [];
+        enquiry.statusHistory.push({
+          status: targetStatus,
+          note: `Status updated to ${targetStatus} via Jiya AI Chat`,
+          changedBy: req.user ? req.user.id : null,
+          changedAt: new Date()
+        });
+
+        await enquiry.save();
+
+        const successMsg = language === 'hindi'
+          ? `✅ **Status Successfully Updated!** 🎉\n\n- **Student Name:** ${enquiry.name}\n- **Old Status:** ${oldStatus}\n- **New Status:** ${targetStatus}\n${targetDate ? `- **Next Follow-up Date:** ${targetDate.toLocaleDateString('en-IN')}\n` : ''}\nAap CRM Enquiries list mein updated status dekh sakte hain!`
+          : `✅ **Status Updated Successfully!** 🎉\n\n- **Student Name:** ${enquiry.name}\n- **Old Status:** ${oldStatus}\n- **New Status:** ${targetStatus}\n${targetDate ? `- **Next Follow-up Date:** ${targetDate.toLocaleDateString('en-IN')}\n` : ''}\nThe changes have been saved to the CRM database!`;
+
+        return successResponse(res, { message: successMsg, intent, language, action: null }, 'Status updated');
+      }
+
+      // Case B: Student & target status found -> Show confirmation prompt!
+      if (enquiry && targetStatus) {
+        const confirmMsg = language === 'hindi'
+          ? `📝 **Status Update Confirmation**\n\n- **Student Name:** ${enquiry.name} (${enquiry.mobile})\n- **Current Status:** ${enquiry.status}\n- **New Status:** ${targetStatus}\n${targetDate ? `- **Next Follow-up Date:** ${targetDate.toLocaleDateString('en-IN')}\n` : ''}\nKya main ye status update DB mein save kar doon? Reply **Haan** ya **Confirm** to save!`
+          : `📝 **Confirm Status Update**\n\n- **Student Name:** ${enquiry.name} (${enquiry.mobile})\n- **Current Status:** ${enquiry.status}\n- **New Status:** ${targetStatus}\n${targetDate ? `- **Next Follow-up Date:** ${targetDate.toLocaleDateString('en-IN')}\n` : ''}\nWould you like me to update this status? Reply **Confirm** or **Yes** to save!`;
+
+        return successResponse(res, { message: confirmMsg, intent, language, action: null }, 'Status update confirmation');
+      }
+
+      // Case C: Student found, but target status missing -> Ask for status & follow-up date!
+      if (enquiry) {
+        const promptMsg = language === 'hindi'
+          ? `🔄 **Update Status for ${enquiry.name}**\n\n- **Current Status:** ${enquiry.status}\n- **Mobile:** ${enquiry.mobile}\n\nKripya **Naya Status** batayein:\n• \`INTERESTED\`\n• \`CONVERTED\`\n• \`NOT_INTERESTED\`\n• \`NO_RESPONSE\`\n• \`CONTACTED\`\n\n*(Saath hi Next Follow-up Date bhi de sakte hain, e.g. "Vikram INTERESTED Kal 4 PM")*`
+          : `🔄 **Update Status for ${enquiry.name}**\n\n- **Current Status:** ${enquiry.status}\n\nPlease specify the **New Status**:\n• \`INTERESTED\`\n• \`CONVERTED\`\n• \`NOT_INTERESTED\`\n• \`NO_RESPONSE\`\n• \`CONTACTED\`\n\n*(You can also include a Next Follow-up Date!)*`;
+
+        return successResponse(res, { message: promptMsg, intent, language, action: null }, 'Target status prompt');
+      }
+
+      // Case D: Nothing specified -> Prompt for all fields!
+      const genericMsg = language === 'hindi'
+        ? `🔄 **Status & Follow-up Update Wizard**\n\nKripya status update karne ke liye details batayein:\n\n1️⃣ **Student Name ya Mobile**\n2️⃣ **Naya Status** (\`INTERESTED\`, \`CONVERTED\`, \`NOT_INTERESTED\`, etc.)\n3️⃣ **Next Follow-up Date** (optional)\n\nExample type karein: *"Vikram status INTERESTED follow up kal 4 PM"*`
+        : `🔄 **Status & Follow-up Update Wizard**\n\nPlease provide the details to update status:\n\n1️⃣ **Student Name or Mobile**\n2️⃣ **New Status** (\`INTERESTED\`, \`CONVERTED\`, \`NOT_INTERESTED\`, etc.)\n3️⃣ **Next Follow-up Date** (optional)\n\nExample: *"Vikram status INTERESTED follow up tomorrow 4 PM"*`;
+
+      return successResponse(res, { message: genericMsg, intent, language, action: null }, 'Status update prompt');
     }
 
     // ─── Direct Follow-up Reschedule via Chat ──────────────────────────────
