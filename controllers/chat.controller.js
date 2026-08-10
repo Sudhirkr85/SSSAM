@@ -1335,44 +1335,100 @@ Return JSON: {"title": string, "content": string}`;
 
     // ─── 8B. Interested Leads ──────────────────────────────────────────────
     else if (intent === 'interested_leads') {
-      const leads = await Enquiry.find({ status: { $in: ['INTERESTED', 'ADMISSION_PROCESS'] } })
+      const leads = await Enquiry.find({ status: { $in: ['INTERESTED', 'interested', 'ADMISSION_PROCESS'] } })
         .sort({ updatedAt: -1 })
-        .limit(12)
+        .limit(15)
         .lean();
 
-      dbData = {
-        type: 'interested_leads',
-        count: leads.length,
-        leads: leads.map(l => ({
-          name: l.name,
-          mobile: l.mobile,
-          course: l.course || 'N/A',
-          status: l.status,
-          followUpDate: l.followUpDate ? new Date(l.followUpDate).toLocaleDateString('en-IN') : 'N/A'
-        }))
-      };
-      contextHint = `List of ${leads.length} high-potential interested enquiries in CRM`;
+      const leadList = leads.map(l => ({
+        name: l.name,
+        mobile: l.mobile,
+        course: l.course || 'N/A',
+        status: l.status,
+        followUpDate: l.followUpDate ? new Date(l.followUpDate).toLocaleDateString('en-IN') : 'N/A'
+      }));
+
+      let directMsg = '';
+      if (leadList.length === 0) {
+        directMsg = language === 'hindi'
+          ? `⭐ Abhi koi Interested lead nahi hai.`
+          : `⭐ No interested leads found currently.`;
+      } else {
+        const heading = language === 'hindi'
+          ? `⭐ **Interested Leads (${leadList.length}):**`
+          : `⭐ **Interested Leads (${leadList.length}):**`;
+
+        directMsg = heading + '\n\n';
+        leadList.forEach((l, i) => {
+          directMsg += `${i + 1}. *${l.name}* • ${l.course} • 📱 ${l.mobile}\n`;
+          directMsg += `   🟡 ${l.status} | 📅 Next Follow-up: ${l.followUpDate}\n\n`;
+        });
+        directMsg += language === 'hindi'
+          ? `💡 Kisi ko call karne ke liye "Call [Name]" ya WhatsApp ke liye "WA [Name]" bolein.`
+          : `💡 Say "Call [Name]" to call or "WA [Name]" to WhatsApp anyone from this list.`;
+      }
+
+      return successResponse(res, {
+        message: directMsg,
+        intent,
+        language,
+        action: null,
+        rawData: {
+          type: 'interested_leads',
+          count: leadList.length,
+          leads: leadList
+        }
+      }, 'Interested leads fetched');
     }
 
     // ─── 8C. New Enquiries ──────────────────────────────────────────────────
     else if (intent === 'new_enquiries') {
-      const enquiries = await Enquiry.find()
+      const statusExclude = ['ADMITTED', 'admitted', 'NOT_INTERESTED', 'not_interested', 'CANCELLED', 'cancelled'];
+      const enquiries = await Enquiry.find({ status: { $nin: statusExclude } })
         .sort({ createdAt: -1 })
-        .limit(12)
+        .limit(15)
         .lean();
 
-      dbData = {
-        type: 'new_enquiries',
-        count: enquiries.length,
-        enquiries: enquiries.map(e => ({
-          name: e.name,
-          mobile: e.mobile,
-          course: e.course || 'N/A',
-          status: e.status || 'NEW',
-          date: new Date(e.createdAt).toLocaleDateString('en-IN')
-        }))
-      };
-      contextHint = `List of ${enquiries.length} recent new enquiries created in CRM`;
+      const enquiryList = enquiries.map(e => ({
+        name: e.name,
+        mobile: e.mobile,
+        course: e.course || 'N/A',
+        status: e.status || 'NEW',
+        date: e.createdAt ? new Date(e.createdAt).toLocaleDateString('en-IN') : 'Recent'
+      }));
+
+      let directMsg = '';
+      if (enquiryList.length === 0) {
+        directMsg = language === 'hindi'
+          ? `🆕 Abhi koi nayi open enquiry nahi hai.`
+          : `🆕 No new open enquiries found.`;
+      } else {
+        const heading = language === 'hindi'
+          ? `🆕 **New Enquiries (${enquiryList.length}):**`
+          : `🆕 **New Enquiries (${enquiryList.length}):**`;
+
+        directMsg = heading + '\n\n';
+        enquiryList.forEach((e, i) => {
+          const statusIcon = e.status === 'INTERESTED' ? '🟡' : e.status === 'CONTACTED' ? '🟢' : '🔵';
+          directMsg += `${i + 1}. *${e.name}* • ${e.course} • 📱 ${e.mobile}\n`;
+          directMsg += `   ${statusIcon} ${e.status} | 📅 Added: ${e.date}\n\n`;
+        });
+        directMsg += language === 'hindi'
+          ? `💡 Kisi ko call karne ke liye "Call [Name]" ya status badalne ke liye "Status update [Name]" bolein.`
+          : `💡 Say "Call [Name]" to call or "Update status of [Name]" to change status.`;
+      }
+
+      return successResponse(res, {
+        message: directMsg,
+        intent,
+        language,
+        action: null,
+        rawData: {
+          type: 'new_enquiries',
+          count: enquiryList.length,
+          enquiries: enquiryList
+        }
+      }, 'New enquiries fetched');
     }
 
     // ─── 9. Mobile Search ─────────────────────────────────────────────────
