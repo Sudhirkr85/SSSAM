@@ -16,11 +16,33 @@ const {
 class SchedulerService {
   constructor() {
     this.lastNotificationHour = null;
+    this.tasks = [];
   }
 
   start() {
+    // If PM2 cluster mode is active, only run scheduler on primary worker (instance 0)
+    if (process.env.NODE_APP_INSTANCE !== undefined && process.env.NODE_APP_INSTANCE !== '0') {
+      console.log(`[Scheduler] Skipping scheduler initialization on PM2 instance ${process.env.NODE_APP_INSTANCE}`);
+      return;
+    }
+
+    // Stop any existing active tasks before scheduling to guarantee idempotency
+    this.stop();
+
     this.scheduleReminders();
     console.log('Scheduler service started with updated schedules (IST)');
+  }
+
+  stop() {
+    if (this.tasks && this.tasks.length > 0) {
+      this.tasks.forEach(task => {
+        if (task && typeof task.stop === 'function') {
+          task.stop();
+        }
+      });
+      console.log(`[Scheduler] Stopped ${this.tasks.length} scheduled cron tasks.`);
+      this.tasks = [];
+    }
   }
 
   /**
@@ -44,39 +66,45 @@ class SchedulerService {
   }
 
   scheduleReminders() {
+    this.tasks = [];
+
     // Daily at 10:00 AM - Punch In check
-    cron.schedule('0 10 * * *', async () => {
+    const task1 = cron.schedule('0 10 * * *', async () => {
       console.log('[Scheduler] Running 10:00 AM Punch In check...');
       await this.sendPunchInReminders();
       await this.sendStagnantEnquiryReminders();
     }, {
       timezone: 'Asia/Kolkata',
     });
+    this.tasks.push(task1);
 
     // Daily at 11:00 AM, 3:00 PM, 5:00 PM - Work Updates with follow-up counts
-    cron.schedule('0 11,15,17 * * *', async () => {
+    const task2 = cron.schedule('0 11,15,17 * * *', async () => {
       console.log('[Scheduler] Running Work Update notification check...');
       await this.sendWorkUpdates();
     }, {
       timezone: 'Asia/Kolkata',
     });
+    this.tasks.push(task2);
 
     // Daily at 11:15 AM - Fee Due Today & Overdue reminders
-    cron.schedule('15 11 * * *', async () => {
+    const task3 = cron.schedule('15 11 * * *', async () => {
       console.log('[Scheduler] Running 11:15 AM Fees Due Today and Overdue reminders...');
       await this.sendFeesDueTodayReminders();
       await this.sendFeesOverdueReminders();
     }, {
       timezone: 'Asia/Kolkata',
     });
+    this.tasks.push(task3);
 
     // Daily at 7:00 PM (19:00) - Punch Out check
-    cron.schedule('0 19 * * *', async () => {
+    const task4 = cron.schedule('0 19 * * *', async () => {
       console.log('[Scheduler] Running 7:00 PM Punch Out check...');
       await this.sendPunchOutReminders();
     }, {
       timezone: 'Asia/Kolkata',
     });
+    this.tasks.push(task4);
   }
 
   async sendPunchInReminders() {

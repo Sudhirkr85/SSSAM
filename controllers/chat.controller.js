@@ -312,17 +312,36 @@ async function getAllContactsList() {
 }
 
 function getTodayRange() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find(p => p.type === 'year').value;
+  const month = parts.find(p => p.type === 'month').value;
+  const day = parts.find(p => p.type === 'day').value;
+
+  const start = new Date(`${year}-${month}-${day}T00:00:00+05:30`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
   return { start, end };
 }
 
 function getMonthRange() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit'
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find(p => p.type === 'year').value;
+  const month = parts.find(p => p.type === 'month').value;
+  
+  const start = new Date(`${year}-${month}-01T00:00:00+05:30`);
+  const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+  const lastDayStr = String(lastDay).padStart(2, '0');
+  const end = new Date(`${year}-${month}-${lastDayStr}T23:59:59.999+05:30`);
   return { start, end };
 }
 
@@ -839,12 +858,19 @@ Return JSON: {"title": string, "content": string}`;
       const { start, end } = getTodayRange();
       const isPendingSearch = /\b(pending|panding|overdue|baki|purane|all|sab|past)\b/.test(query.toLowerCase());
 
-      let filter = { followUpDate: { $gte: start, $lte: end } };
+      let filter = {
+        status: { $nin: ['CONVERTED', 'NOT_INTERESTED', 'ADMISSION_PROCESS'] }
+      };
+
       if (isPendingSearch) {
-        filter = {
-          followUpDate: { $lte: end },
-          status: { $nin: ['CONVERTED', 'NOT_INTERESTED', 'ADMISSION_PROCESS'] }
-        };
+        filter.followUpDate = { $lte: end };
+      } else {
+        filter.followUpDate = { $gte: start, $lte: end };
+      }
+
+      // Role-based filtering: Counselors see their assigned follow-ups
+      if (req.user && (req.user.role === 'COUNSELOR' || req.user.role === 'counselor')) {
+        filter.assignedTo = req.user.id || req.user._id;
       }
 
       const followups = await Enquiry.find(filter)

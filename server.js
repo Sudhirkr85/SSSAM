@@ -35,15 +35,29 @@ const startServer = async () => {
   }
 };
 
+const gracefulShutdown = (signal) => {
+  console.log(`[Server] ${signal} signal received: closing HTTP server and stopping scheduler...`);
+  schedulerService.stop();
+  server.close(() => {
+    console.log('[Server] HTTP server closed.');
+    process.exit(0);
+  });
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 process.on('unhandledRejection', (err) => {
   console.error('Unhandled Rejection:', err.name, err.message);
   console.error('Shutting down gracefully...');
+  schedulerService.stop();
   process.exit(1);
 });
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err.name, err.message);
   console.error('Shutting down gracefully...');
+  schedulerService.stop();
   process.exit(1);
 });
 
