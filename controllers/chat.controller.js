@@ -1,5 +1,7 @@
 const { Enquiry, Admission, Payment, Note, Attendance, User } = require('../models');
 const admissionService = require('../services/admission.service');
+const enquiryService = require('../services/enquiry.service');
+const firebaseService = require('../services/firebaseService');
 const { formatCRMResponse, parseJSONResponse } = require('../services/geminiService');
 const catchAsync = require('../utils/catchAsync');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
@@ -920,19 +922,37 @@ Return JSON: {"title": string, "content": string}`;
 
       if (name && mobile && isConfirm) {
         try {
-          const newEnquiry = await Enquiry.create({
+          const payload = {
             name,
             mobile,
             course: course || 'General',
-            assignedTo: req.user ? req.user.id : null,
+            source: 'AI_CHAT',
             status: 'INTERESTED'
-          });
+          };
+          const newEnquiry = await enquiryService.createEnquiry(payload, req.user || { id: null, role: 'STAFF' });
+          
+          // Send notification to all counselors and admin
+          const creatorName = req.user ? (req.user.name || 'Staff') : 'Staff';
+          await firebaseService.sendToAdminAndCounselors(
+            'New Enquiry Added (via AI Chat)',
+            `${newEnquiry.name} (${newEnquiry.mobile}) - ${newEnquiry.course} | Added by: ${creatorName}`,
+            { type: 'enquiry_created', enquiryId: newEnquiry._id ? newEnquiry._id.toString() : '' }
+          );
+
           const successMsg = language === 'hindi'
-            ? `✅ **Nayi Enquiry Successfully Save Ho Gayi!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n- **Status:** INTERESTED\n\nAap CRM Enquiries list mein ise dekh sakte hain!`
-            : `✅ **New Enquiry Saved Successfully!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n\nYou can view it in the Enquiries list!`;
+            ? `✅ **Nayi Enquiry Successfully Save Ho Gayi!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n- **Source:** AI Chat\n\nAap CRM Enquiries list mein ise dekh sakte hain!`
+            : `✅ **New Enquiry Saved Successfully!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n- **Source:** AI Chat\n\nYou can view it in the Enquiries list!`;
           return successResponse(res, { message: successMsg, intent, language, action: null }, 'Enquiry created');
         } catch (e) {
           console.error('Enquiry creation error:', e);
+          const duplicateMsg = e.message && e.message.includes('already registered')
+            ? (language === 'hindi'
+                ? `⚠️ Mobile number **${mobile}** se student pehle se CRM mein registered hai!`
+                : `⚠️ Student with mobile number **${mobile}** is already registered in CRM!`)
+            : (language === 'hindi'
+                ? `❌ Enquiry save nahi ho saki: ${e.message}`
+                : `❌ Failed to save enquiry: ${e.message}`);
+          return successResponse(res, { message: duplicateMsg, intent, language, action: null }, 'Enquiry creation error');
         }
       }
 
