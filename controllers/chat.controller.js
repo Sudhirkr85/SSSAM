@@ -1007,6 +1007,7 @@ Return JSON: {"title": string, "content": string}`;
       }
 
       const promptMsg = language === 'hindi'
+        ? `🎓 **Direct Admission & Fee Setup**\n\nPlease details batayein:\n\n1️⃣ **Student Name**\n2️⃣ **10-Digit Mobile**\n3️⃣ **Course**\n4️⃣ **Total Fees** & **Abhi Kitna Dega (Down Payment)**\n5️⃣ **Payment Mode (Cash/UPI/Card)**\n\nExample type karein: *"Aarav Sharma 9876543210 Tally Prime Total Fees 15000 Down Payment 5000 UPI"*`
         : `🎓 **Direct Admission Setup**\n\nPlease specify if this is an existing Enquiry or a Direct Walk-In:\n\n1️⃣ **Student Name**\n2️⃣ **10-Digit Mobile**\n3️⃣ **Course**\n4️⃣ **Total Fees** & **Down Payment**\n\nExample: *"Aarav Sharma 9876543210 Tally Prime Total Fees 15000 Down Payment 5000"*`;
       return successResponse(res, { message: promptMsg, intent, language, action: null }, 'Admission details prompt');
     }
