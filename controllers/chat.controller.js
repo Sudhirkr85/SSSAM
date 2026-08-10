@@ -780,6 +780,8 @@ Return JSON: {"title": string, "content": string}`;
       const today = getTodayRange();
       const month = getMonthRange();
 
+      const activeAdmissionQuery = { status: { $nin: ['cancelled', 'CANCELLED', 'dropped', 'DROPPED'] } };
+
       const [
         totalAdmissions,
         monthAdmissions,
@@ -788,12 +790,12 @@ Return JSON: {"title": string, "content": string}`;
         todayFollowups,
         admissionsData
       ] = await Promise.all([
-        Admission.countDocuments({ status: 'ACTIVE' }),
+        Admission.countDocuments(activeAdmissionQuery),
         Admission.countDocuments({ admissionDate: { $gte: month.start, $lte: month.end } }),
         Enquiry.countDocuments(),
         Enquiry.countDocuments({ createdAt: { $gte: today.start, $lte: today.end } }),
         Enquiry.countDocuments({ followUpDate: { $gte: today.start, $lte: today.end } }),
-        Admission.find({ status: 'ACTIVE' }).select('installments registrationAmount totalFees course').lean()
+        Admission.find(activeAdmissionQuery).select('installments registrationAmount totalFees course').lean()
       ]);
 
       let totalCollected = 0;
@@ -805,11 +807,32 @@ Return JSON: {"title": string, "content": string}`;
         if (adm.course) {
           courseCounts[adm.course] = (courseCounts[adm.course] || 0) + 1;
         }
+        let instPendingSum = 0;
+        let instPaidSum = 0;
         (adm.installments || []).forEach((inst) => {
-          if (inst.status === 'PAID') totalCollected += inst.amount;
-          if (inst.status === 'PENDING') totalPending += inst.amount;
+          const s = (inst.status || '').toUpperCase();
+          if (s === 'PAID') instPaidSum += (inst.amount || 0);
+          if (s === 'PENDING' || s === 'OVERDUE') instPendingSum += (inst.amount || 0);
         });
+        totalCollected += instPaidSum;
+
+        if (adm.installments && adm.installments.length > 0) {
+          totalPending += instPendingSum;
+        } else if (adm.totalFees) {
+          const calcPending = Math.max(0, adm.totalFees - (adm.registrationAmount || 0) - instPaidSum);
+          totalPending += calcPending;
+        }
       });
+
+      if (totalCollected === 0) {
+        const allPayments = await Payment.aggregate([
+          { $match: { status: { $nin: ['VOIDED', 'voided', 'FAILED', 'failed'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        if (allPayments.length > 0 && allPayments[0].total > 0) {
+          totalCollected = allPayments[0].total;
+        }
+      }
 
       dbData = {
         type: 'crm_analytics_summary',
@@ -1482,8 +1505,9 @@ Return JSON: {"title": string, "content": string}`;
 
     // ─── 12. General AI Assistance & Custom Multi-Condition Queries ────────
     else {
+      const activeQuery = { status: { $nin: ['cancelled', 'CANCELLED', 'dropped', 'DROPPED'] } };
       const [recentAdmissions, recentEnquiries, totalAdmissions, totalEnquiries, userNotes] = await Promise.all([
-        Admission.find({ status: 'ACTIVE' })
+        Admission.find(activeQuery)
           .select('name mobile course totalFees installments status createdAt')
           .sort({ createdAt: -1 })
           .limit(15)
@@ -1494,7 +1518,7 @@ Return JSON: {"title": string, "content": string}`;
           .sort({ createdAt: -1 })
           .limit(15)
           .lean(),
-        Admission.countDocuments({ status: 'ACTIVE' }),
+        Admission.countDocuments(activeQuery),
         Enquiry.countDocuments(),
         Note.find(req.user ? { userId: req.user.id } : {}).select('title content').sort({ createdAt: -1 }).limit(10).lean()
       ]);
