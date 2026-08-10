@@ -843,18 +843,54 @@ Return JSON: {"title": string, "content": string}`;
         }
       }
 
-      dbData = {
-        type: 'crm_analytics_summary',
-        totalActiveStudents: totalAdmissions,
-        newAdmissionsThisMonth: monthAdmissions,
-        totalEnquiries,
-        todayNewEnquiries: todayEnquiries,
-        todayPendingFollowups: todayFollowups,
-        totalFeesCollected: `₹${totalCollected.toLocaleString('en-IN')}`,
-        totalPendingFees: `₹${totalPending.toLocaleString('en-IN')}`,
-        topCourses: Object.entries(courseCounts).map(([c, count]) => `${c} (${count} students)`).slice(0, 5)
-      };
-      contextHint = 'Comprehensive live CRM performance, revenue, admissions, and enquiries summary';
+      const topCoursesList = Object.entries(courseCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([c, count], i) => `${i + 1}. *${c}* (${count} student${count > 1 ? 's' : ''})`);
+
+      let overviewMsg = language === 'hindi'
+        ? `📊 **SSSAM CRM ओवरव्यू व स्टैटिस्टिक्स**\n\n` +
+          `• 👨‍🎓 **कुल सक्रिय छात्र (Active Students):** ${totalAdmissions}\n` +
+          `• 🆕 **इस महीने के एडमिशन्स:** ${monthAdmissions}\n` +
+          `• 📋 **कुल इन्क्वायरी लीड्स:** ${totalEnquiries}\n` +
+          `• 🆕 **आज की नई इन्क्वायरी:** ${todayEnquiries}\n` +
+          `• 📅 **आज के पेंडिंग फॉलो-अप्स:** ${todayFollowups}\n` +
+          `• 💰 **कुल फीस कलेक्शन:** ₹${totalCollected.toLocaleString('en-IN')}\n` +
+          `• ⏳ **कुल पेंडिंग फीस:** ₹${totalPending.toLocaleString('en-IN')}\n\n`
+        : `📊 **SSSAM CRM Overview & Statistics**\n\n` +
+          `• 👨‍🎓 **Total Active Students:** ${totalAdmissions}\n` +
+          `• 🆕 **New Admissions This Month:** ${monthAdmissions}\n` +
+          `• 📋 **Total Enquiries:** ${totalEnquiries}\n` +
+          `• 🆕 **Today's New Enquiries:** ${todayEnquiries}\n` +
+          `• 📅 **Today's Pending Follow-ups:** ${todayFollowups}\n` +
+          `• 💰 **Total Fees Collected:** ₹${totalCollected.toLocaleString('en-IN')}\n` +
+          `• ⏳ **Total Pending Fees:** ₹${totalPending.toLocaleString('en-IN')}\n\n`;
+
+      if (topCoursesList.length > 0) {
+        overviewMsg += `📚 **Top Courses:**\n` + topCoursesList.join('\n') + `\n\n`;
+      }
+
+      overviewMsg += language === 'hindi'
+        ? `💡 *किसी भी जानकारी के लिए "aaj ke follow-ups" या "pending fees" कहें।*`
+        : `💡 *Say "show today's follow-ups" or "show pending fees" to explore further.*`;
+
+      return successResponse(res, {
+        message: overviewMsg,
+        intent,
+        language,
+        action: null,
+        rawData: {
+          type: 'crm_analytics_summary',
+          totalActiveStudents: totalAdmissions,
+          newAdmissionsThisMonth: monthAdmissions,
+          totalEnquiries,
+          todayNewEnquiries: todayEnquiries,
+          todayPendingFollowups: todayFollowups,
+          totalFeesCollected: `₹${totalCollected.toLocaleString('en-IN')}`,
+          totalPendingFees: `₹${totalPending.toLocaleString('en-IN')}`,
+          topCourses: topCoursesList
+        }
+      }, 'CRM analytics summary fetched');
     }
 
     // ─── 6. Course & Batch Info ───────────────────────────────────────────
