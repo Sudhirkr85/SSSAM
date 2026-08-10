@@ -56,7 +56,7 @@ function detectIntent(query) {
     return 'payment_report';
   }
 
-  // 7. Save note / Custom Memory intent (Teach Jiya AI)
+  // 7. Save note / Custom Memory intent (Teach Khushi AI)
   if (/\b(save note|save message|save data|save info|note likho|note save|isey save|isko save|yaad rakhna|yaad rakho|dhyan rakhna|dhyan rakho|rule set|teach|ye yaad|yaad kar lo|memories)\b/.test(q)) {
     return 'save_note';
   }
@@ -532,11 +532,11 @@ Return JSON: {"title": string, "content": string}`;
 
       const responseMsg = language === 'hindi'
         ? `🙏 **Feedback Saved & Self-Correction Applied!**\n\n` +
-          `Aapka feedback Jiya AI memory mein save kar liya gaya hai:\n` +
+          `Aapka feedback Khushi AI memory mein save kar liya gaya hai:\n` +
           `📌 **Learning Rule:** _"${feedbackContent}"_\n\n` +
           `💡 *Shukriya! Aage se main is naye rule ke hisab se responsive aur accurate rahungi!* ✨`
         : `🙏 **Feedback Saved & Self-Correction Applied!**\n\n` +
-          `Your feedback has been saved into Jiya AI memory:\n` +
+          `Your feedback has been saved into Khushi AI memory:\n` +
           `📌 **Learning Rule:** _"${feedbackContent}"_\n\n` +
           `💡 *Thank you! I will follow this guideline for future responses!* ✨`;
 
@@ -1212,7 +1212,7 @@ Return JSON: {"title": string, "content": string}`;
         if (!enquiry.statusHistory) enquiry.statusHistory = [];
         enquiry.statusHistory.push({
           status: targetStatus,
-          note: `Status updated to ${targetStatus} via Jiya AI Chat`,
+          note: `Status updated to ${targetStatus} via Khushi AI Chat`,
           changedBy: req.user ? req.user.id : null,
           changedAt: new Date()
         });
