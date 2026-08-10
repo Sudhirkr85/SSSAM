@@ -1,7 +1,5 @@
 const { Enquiry, Admission, Payment, Note, Attendance, User } = require('../models');
 const admissionService = require('../services/admission.service');
-const enquiryService = require('../services/enquiry.service');
-const firebaseService = require('../services/firebaseService');
 const { formatCRMResponse, parseJSONResponse } = require('../services/geminiService');
 const catchAsync = require('../utils/catchAsync');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
@@ -56,7 +54,7 @@ function detectIntent(query) {
     return 'payment_report';
   }
 
-  // 7. Save note / Custom Memory intent (Teach Khushi AI)
+  // 7. Save note / Custom Memory intent (Teach Jiya AI)
   if (/\b(save note|save message|save data|save info|note likho|note save|isey save|isko save|yaad rakhna|yaad rakho|dhyan rakhna|dhyan rakho|rule set|teach|ye yaad|yaad kar lo|memories)\b/.test(q)) {
     return 'save_note';
   }
@@ -882,24 +880,55 @@ Return JSON: {"title": string, "content": string}`;
         .limit(20)
         .lean();
 
-      dbData = {
-        type: isPendingSearch ? 'pending_followups' : 'today_followups',
-        date: new Date().toLocaleDateString('en-IN'),
-        count: followups.length,
-        followups: followups.map((f) => ({
-          name: f.name,
-          mobile: f.mobile,
-          course: f.course || 'N/A',
-          status: f.status,
-          followUpDate: f.followUpDate ? new Date(f.followUpDate).toLocaleDateString('en-IN') : 'Today',
-          followUpTime: f.followUpDate ? new Date(f.followUpDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Today',
-          assignedTo: f.assignedTo ? f.assignedTo.name : 'Counselor'
-        }))
-      };
-      contextHint = isPendingSearch
-        ? `Pending & overdue follow-up tasks count: ${followups.length}`
-        : `Today's follow-up task list for ${new Date().toLocaleDateString('en-IN')}`;
+      const followupList = followups.map((f) => ({
+        name: f.name,
+        mobile: f.mobile,
+        course: f.course || 'N/A',
+        status: f.status,
+        followUpDate: f.followUpDate ? new Date(f.followUpDate).toLocaleDateString('en-IN') : 'Today',
+        followUpTime: f.followUpDate ? new Date(f.followUpDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '-',
+        assignedTo: f.assignedTo ? f.assignedTo.name : 'Counselor'
+      }));
+
+      // Build direct deterministic message — no AI hallucination
+      let directMsg = '';
+      const todayStr = new Date().toLocaleDateString('en-IN');
+
+      if (followupList.length === 0) {
+        directMsg = language === 'hindi'
+          ? `📅 Aaj ke liye koi follow-up scheduled nahi hai! Sab clear hai. ✅`
+          : `📅 No follow-ups scheduled for today (${todayStr}). All clear! ✅`;
+      } else {
+        const heading = isPendingSearch
+          ? (language === 'hindi' ? `📅 Pending & Overdue Follow-ups (${followupList.length}):` : `📅 Pending & Overdue Follow-ups (${followupList.length}):`)
+          : (language === 'hindi' ? `📅 Aaj ke Follow-ups (${followupList.length}) — ${todayStr}` : `📅 Today's Follow-ups (${followupList.length}) — ${todayStr}`);
+
+        directMsg = heading + '\n\n';
+        followupList.forEach((f, i) => {
+          const statusIcon = f.status === 'INTERESTED' ? '🟡' : f.status === 'ACTIVE' ? '🟢' : f.status === 'OVERDUE' ? '🔴' : '🔵';
+          directMsg += `${i + 1}. *${f.name}* • ${f.course} • 📱 ${f.mobile}\n`;
+          directMsg += `   ${statusIcon} ${f.status} | 🕐 ${f.followUpTime} | 👤 ${f.assignedTo}\n\n`;
+        });
+
+        directMsg += language === 'hindi'
+          ? `💡 Kisi ko call karne ke liye "Call [Name]" ya WhatsApp ke liye "WA [Name]" bolein.`
+          : `💡 Say "Call [Name]" to call or "WA [Name]" to WhatsApp anyone from this list.`;
+      }
+
+      return successResponse(res, {
+        message: directMsg,
+        intent,
+        language,
+        action: null,
+        rawData: {
+          type: isPendingSearch ? 'pending_followups' : 'today_followups',
+          date: todayStr,
+          count: followupList.length,
+          followups: followupList
+        }
+      }, 'Follow-up list fetched');
     }
+
 
     // ─── 7B. Interactive In-Chat Add Enquiry Wizard ──────────────────────
     else if (intent === 'add_enquiry_wizard') {
@@ -922,37 +951,19 @@ Return JSON: {"title": string, "content": string}`;
 
       if (name && mobile && isConfirm) {
         try {
-          const payload = {
+          const newEnquiry = await Enquiry.create({
             name,
             mobile,
             course: course || 'General',
-            source: 'AI_CHAT',
+            assignedTo: req.user ? req.user.id : null,
             status: 'INTERESTED'
-          };
-          const newEnquiry = await enquiryService.createEnquiry(payload, req.user || { id: null, role: 'STAFF' });
-          
-          // Send notification to all counselors and admin
-          const creatorName = req.user ? (req.user.name || 'Staff') : 'Staff';
-          await firebaseService.sendToAdminAndCounselors(
-            'New Enquiry Added (via AI Chat)',
-            `${newEnquiry.name} (${newEnquiry.mobile}) - ${newEnquiry.course} | Added by: ${creatorName}`,
-            { type: 'enquiry_created', enquiryId: newEnquiry._id ? newEnquiry._id.toString() : '' }
-          );
-
+          });
           const successMsg = language === 'hindi'
-            ? `✅ **Nayi Enquiry Successfully Save Ho Gayi!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n- **Source:** AI Chat\n\nAap CRM Enquiries list mein ise dekh sakte hain!`
-            : `✅ **New Enquiry Saved Successfully!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n- **Source:** AI Chat\n\nYou can view it in the Enquiries list!`;
+            ? `✅ **Nayi Enquiry Successfully Save Ho Gayi!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n- **Status:** INTERESTED\n\nAap CRM Enquiries list mein ise dekh sakte hain!`
+            : `✅ **New Enquiry Saved Successfully!** 🎉\n\n- **Name:** ${newEnquiry.name}\n- **Mobile:** ${newEnquiry.mobile}\n- **Course:** ${newEnquiry.course}\n\nYou can view it in the Enquiries list!`;
           return successResponse(res, { message: successMsg, intent, language, action: null }, 'Enquiry created');
         } catch (e) {
           console.error('Enquiry creation error:', e);
-          const duplicateMsg = e.message && e.message.includes('already registered')
-            ? (language === 'hindi'
-                ? `⚠️ Mobile number **${mobile}** se student pehle se CRM mein registered hai!`
-                : `⚠️ Student with mobile number **${mobile}** is already registered in CRM!`)
-            : (language === 'hindi'
-                ? `❌ Enquiry save nahi ho saki: ${e.message}`
-                : `❌ Failed to save enquiry: ${e.message}`);
-          return successResponse(res, { message: duplicateMsg, intent, language, action: null }, 'Enquiry creation error');
         }
       }
 
@@ -1062,6 +1073,7 @@ Return JSON: {"title": string, "content": string}`;
     else if (intent === 'pending_fee') {
       const qLower = query.toLowerCase();
       const isTodaySearch = /\b(aaj|today|aj)\b/.test(qLower);
+      const isMonthSearch = /\b(is month|this month|mahine|mahina|monthly|month|is mahine|iss month)\b/.test(qLower);
       const isUpcomingSearch = /\b(upcoming|aane wala|aane waala|next|date wise|datewise|aane wali|schedule)\b/.test(qLower);
       const studentNameSearch = extractSearchTerm(query, 'pending_fee');
 
@@ -1081,6 +1093,7 @@ Return JSON: {"title": string, "content": string}`;
       }
 
       const todayRange = getTodayRange();
+      const monthRange = getMonthRange();
       let totalPendingSum = 0;
       const feeReportList = [];
 
@@ -1090,27 +1103,33 @@ Return JSON: {"title": string, "content": string}`;
 
         let filteredInst = pendingInst;
 
-        // If today search, filter installments due today
+        // Filter by date range if specific mode
         if (isTodaySearch) {
           filteredInst = pendingInst.filter((i) => {
             if (!i.dueDate) return false;
             const d = new Date(i.dueDate);
             return d >= todayRange.start && d <= todayRange.end;
           });
+        } else if (isMonthSearch) {
+          filteredInst = pendingInst.filter((i) => {
+            if (!i.dueDate) return true; // include undated pending
+            const d = new Date(i.dueDate);
+            return d >= monthRange.start && d <= monthRange.end;
+          });
         }
 
         const pendingAmt = filteredInst.reduce((sum, i) => sum + (i.amount || 0), 0);
-        if (pendingAmt <= 0 && (isTodaySearch || studentNameSearch)) return;
+        if (pendingAmt <= 0 && (isTodaySearch || isMonthSearch) && !studentNameSearch) return;
 
         const totalStudentPending = pendingInst.reduce((sum, i) => sum + (i.amount || 0), 0);
-        totalPendingSum += totalStudentPending;
+        totalPendingSum += (filteredInst.length > 0 ? pendingAmt : totalStudentPending);
 
         feeReportList.push({
           name: a.name,
           mobile: a.mobile,
           course: a.course || 'N/A',
           totalFees: a.totalFees || 0,
-          pendingAmount: totalStudentPending,
+          pendingAmount: filteredInst.length > 0 ? pendingAmt : totalStudentPending,
           queryFilteredPending: pendingAmt,
           installments: filteredInst.map((i) => ({
             amount: i.amount,
@@ -1130,8 +1149,8 @@ Return JSON: {"title": string, "content": string}`;
       }
 
       dbData = {
-        type: isTodaySearch ? 'today_due_fees' : (isUpcomingSearch ? 'upcoming_fees_datewise' : 'pending_fees'),
-        searchMode: isTodaySearch ? 'today' : (isUpcomingSearch ? 'upcoming' : (studentNameSearch ? 'student' : 'all')),
+        type: isTodaySearch ? 'today_due_fees' : (isMonthSearch ? 'month_due_fees' : (isUpcomingSearch ? 'upcoming_fees_datewise' : 'pending_fees')),
+        searchMode: isTodaySearch ? 'today' : (isMonthSearch ? 'month' : (isUpcomingSearch ? 'upcoming' : (studentNameSearch ? 'student' : 'all'))),
         searchedStudent: studentNameSearch || null,
         count: feeReportList.length,
         totalPendingAmount: `₹${totalPendingSum.toLocaleString('en-IN')}`,
