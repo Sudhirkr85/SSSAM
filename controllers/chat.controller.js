@@ -1208,7 +1208,7 @@ Return JSON: {"title": string, "content": string}`;
 
     // ─── 8B. Interested Leads ──────────────────────────────────────────────
     else if (intent === 'interested_leads') {
-      const leads = await Enquiry.find({ status: { $in: ['INTERESTED', 'ADMISSION_PROCESS', 'CONTACTED', 'FOLLOW_UP'] } })
+      const leads = await Enquiry.find({ status: { $in: ['INTERESTED', 'ADMISSION_PROCESS'] } })
         .sort({ updatedAt: -1 })
         .limit(12)
         .lean();
