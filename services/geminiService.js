@@ -178,7 +178,9 @@ Format your answers like a top-tier AI Assistant (ChatGPT / Claude):
    - Status: [🟢 Active / 🟡 Follow-up / 🔴 Overdue] | Amount / Info: [Details]
 4. **Drafting Messages**: When asked to draft a message, provide a clean, copy-paste-ready WhatsApp/SMS message with placeholders like [Student Name].
 5. **Next Steps & Quick Tips**: Always include a 1-line helpful suggestion at the end (e.g. *💡 You can say "Call [Name]" or "Show pending fees" to explore further.*).
-6. **No Raw Dumps**: Never dump raw unformatted JSON or walls of plain text.`;
+6. **No Raw Dumps**: Never dump raw unformatted JSON or walls of plain text.
+7. **Unrecognized / Ambiguous Query Guidance**: If the query is completely unclear, confused, or random text, reply politely with guided choices:
+   - "Hmm, mujhe ye samajh nahi aaya! 🤔\n\nAap mujhse ye puch sakte hain:\n• 📊 **Overview** — CRM summary dekhne ke liye\n• 📅 **Today followups** — Aaj ke follow-ups\n• 💰 **Pending fees** — Fees dues ki list\n• ➕ **New Enquiry** — Nayi enquiry add karne ke liye\n• 🎓 **Direct Admission** — Direct admission ke liye\n\nNiche quick chips click karein ya fir se type karein! 👇"`;
 
   const suggestionInstruction = data && Array.isArray(data.suggestions) && data.suggestions.length
     ? 'No exact match was found. Offer these likely matches and ask the user to confirm:\n' + data.suggestions.map((item, index) => `${index + 1}. ${item}`).join('\n')

@@ -41,9 +41,14 @@ function detectIntent(query) {
     return 'payment_report';
   }
 
-  // 7. Save note intent
-  if (/\b(save note|save message|save data|save info|note likho|note save|isey save|isko save|yaad rakhna|सेव करो|लिखो)\b/.test(q)) {
+  // 7. Save note / Custom Memory intent (Teach Jiya AI)
+  if (/\b(save note|save message|save data|save info|note likho|note save|isey save|isko save|yaad rakhna|yaad rakho|dhyan rakhna|dhyan rakho|rule set|teach|ye yaad|yaad kar lo|memories)\b/.test(q)) {
     return 'save_note';
+  }
+
+  // 7B. Feedback & AI Self-Correction Intent
+  if (/\b(feedback|suggestion|galat answer|galat hai|wrong answer|next time|sudhar lo|improve|correction|correct yourself|aise mat|aage se|galat bataya)\b/.test(q)) {
+    return 'ai_feedback';
   }
 
   // 8. Get notes intent
@@ -464,6 +469,31 @@ Return JSON: {"title": string, "content": string}`;
         action: null,
         rawData: newNote
       }, 'Note saved');
+    }
+
+    // ─── AI Self-Correction & Feedback Memory Handler ──────────────────────
+    if (intent === 'ai_feedback') {
+      const feedbackContent = query
+        .replace(/\b(feedback|suggestion|galat answer|galat hai|wrong answer|next time|sudhar lo|improve|correction|correct yourself|aise mat|aage se|galat bataya)\b/gi, '')
+        .trim() || query;
+
+      const newFeedback = await Note.create({
+        userId: req.user ? req.user.id : null,
+        title: 'Feedback & Self-Correction Rule',
+        content: feedbackContent
+      });
+
+      const responseMsg = language === 'hindi'
+        ? `🙏 **Feedback Saved & Self-Correction Applied!**\n\n` +
+          `Aapka feedback Jiya AI memory mein save kar liya gaya hai:\n` +
+          `📌 **Learning Rule:** _"${feedbackContent}"_\n\n` +
+          `💡 *Shukriya! Aage se main is naye rule ke hisab se responsive aur accurate rahungi!* ✨`
+        : `🙏 **Feedback Saved & Self-Correction Applied!**\n\n` +
+          `Your feedback has been saved into Jiya AI memory:\n` +
+          `📌 **Learning Rule:** _"${feedbackContent}"_\n\n` +
+          `💡 *Thank you! I will follow this guideline for future responses!* ✨`;
+
+      return successResponse(res, { message: responseMsg, intent, language, action: null, rawData: newFeedback }, 'Feedback processed');
     }
 
     // ─── 3. Get Saved Notes ────────────────────────────────────────────────
@@ -1081,7 +1111,7 @@ Return JSON: {"title": string, "content": string}`;
 
     // ─── 12. General AI Assistance & Custom Multi-Condition Queries ────────
     else {
-      const [recentAdmissions, recentEnquiries, totalAdmissions, totalEnquiries] = await Promise.all([
+      const [recentAdmissions, recentEnquiries, totalAdmissions, totalEnquiries, userNotes] = await Promise.all([
         Admission.find({ status: 'ACTIVE' })
           .select('name mobile course totalFees installments status createdAt')
           .sort({ createdAt: -1 })
@@ -1094,13 +1124,15 @@ Return JSON: {"title": string, "content": string}`;
           .limit(15)
           .lean(),
         Admission.countDocuments({ status: 'ACTIVE' }),
-        Enquiry.countDocuments()
+        Enquiry.countDocuments(),
+        Note.find(req.user ? { userId: req.user.id } : {}).select('title content').sort({ createdAt: -1 }).limit(10).lean()
       ]);
 
       dbData = {
         type: 'general_assistance',
         activeStudents: totalAdmissions,
         totalLeads: totalEnquiries,
+        userCustomInstructionsAndMemories: (userNotes || []).map(n => ({ title: n.title, memory: n.content })),
         institute: 'SSSAM Academy CRM',
         sampleAdmissions: recentAdmissions.map((a) => ({
           name: a.name,
