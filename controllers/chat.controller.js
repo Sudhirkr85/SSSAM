@@ -782,6 +782,15 @@ Return JSON: {"title": string, "content": string}`;
 
       const activeAdmissionQuery = { status: { $nin: ['cancelled', 'CANCELLED', 'dropped', 'DROPPED'] } };
 
+      const statusExclude = ['ADMITTED', 'admitted', 'NOT_INTERESTED', 'not_interested', 'CONVERTED', 'converted', 'ADMISSION_PROCESS'];
+      const followupFilter = {
+        followUpDate: { $lte: today.end },
+        status: { $nin: statusExclude }
+      };
+      if (req.user && (req.user.role === 'COUNSELOR' || req.user.role === 'counselor')) {
+        followupFilter.assignedTo = req.user.id || req.user._id;
+      }
+
       const [
         totalAdmissions,
         monthAdmissions,
@@ -794,7 +803,7 @@ Return JSON: {"title": string, "content": string}`;
         Admission.countDocuments({ admissionDate: { $gte: month.start, $lte: month.end } }),
         Enquiry.countDocuments(),
         Enquiry.countDocuments({ createdAt: { $gte: today.start, $lte: today.end } }),
-        Enquiry.countDocuments({ followUpDate: { $gte: today.start, $lte: today.end } }),
+        Enquiry.countDocuments(followupFilter),
         Admission.find(activeAdmissionQuery).select('installments registrationAmount totalFees course').lean()
       ]);
 
@@ -876,20 +885,17 @@ Return JSON: {"title": string, "content": string}`;
       contextHint = 'List of courses offered with enrollment statistics and fee details';
     }
 
-    // ─── 7. Follow-up List (Today or All Overdue/Pending) ───────────────────
+    // ─── 7. Follow-up List (Today & Overdue Pending) ───────────────────
     else if (intent === 'followup') {
-      const { start, end } = getTodayRange();
+      const { end } = getTodayRange();
       const isPendingSearch = /\b(pending|panding|overdue|baki|purane|all|sab|past)\b/.test(query.toLowerCase());
 
-      let filter = {
-        status: { $nin: ['CONVERTED', 'NOT_INTERESTED', 'ADMISSION_PROCESS'] }
-      };
+      const statusExclude = ['ADMITTED', 'admitted', 'NOT_INTERESTED', 'not_interested', 'CONVERTED', 'converted', 'ADMISSION_PROCESS'];
 
-      if (isPendingSearch) {
-        filter.followUpDate = { $lte: end };
-      } else {
-        filter.followUpDate = { $gte: start, $lte: end };
-      }
+      let filter = {
+        status: { $nin: statusExclude },
+        followUpDate: { $lte: end }
+      };
 
       // Role-based filtering: Counselors see their assigned follow-ups
       if (req.user && (req.user.role === 'COUNSELOR' || req.user.role === 'counselor')) {
@@ -900,7 +906,7 @@ Return JSON: {"title": string, "content": string}`;
         .populate('assignedTo', 'name')
         .select('name mobile course status followUpDate assignedTo')
         .sort({ followUpDate: 1 })
-        .limit(20)
+        .limit(25)
         .lean();
 
       const followupList = followups.map((f) => ({
