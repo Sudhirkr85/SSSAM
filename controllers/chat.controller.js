@@ -1261,12 +1261,17 @@ Return JSON: {"title": string, "content": string}`;
         mobile,
         enquiry: enquiry ? {
           name: enquiry.name,
-          email: enquiry.email,
           mobile: enquiry.mobile,
           course: enquiry.course,
           status: enquiry.status,
-          followUpDate: enquiry.followUpDate ? new Date(enquiry.followUpDate).toLocaleDateString('en-IN') : null,
-          assignedTo: enquiry.assignedTo ? enquiry.assignedTo.name : 'Unassigned'
+          followUpDate: enquiry.followUpDate ? new Date(enquiry.followUpDate).toLocaleDateString('en-IN') : 'N/A',
+          createdOn: enquiry.createdAt ? new Date(enquiry.createdAt).toLocaleDateString('en-IN') : 'N/A',
+          assignedTo: enquiry.assignedTo ? enquiry.assignedTo.name : 'Unassigned',
+          timeline: (enquiry.statusHistory || []).map(h => ({
+            status: h.status,
+            note: h.note || '',
+            date: h.changedAt ? new Date(h.changedAt).toLocaleDateString('en-IN') : 'N/A'
+          }))
         } : null,
         admission: admission ? {
           name: admission.name,
@@ -1276,10 +1281,11 @@ Return JSON: {"title": string, "content": string}`;
           pendingAmount: (admission.installments || [])
             .filter((i) => i.status === 'PENDING')
             .reduce((sum, i) => sum + i.amount, 0),
-          status: admission.status
+          status: admission.status,
+          admissionDate: admission.createdAt ? new Date(admission.createdAt).toLocaleDateString('en-IN') : 'N/A'
         } : null
       };
-      contextHint = `Student / Enquiry record found for mobile ${mobile}`;
+      contextHint = `Single student enquiry record. Present ONLY essential fields (Name, Mobile, Course, Status, Next Follow-up) and a clean chronological Timeline of status changes. Omit unnecessary extra details.`;
     }
 
     // ─── 10. Email Search ─────────────────────────────────────────────────
@@ -1295,10 +1301,16 @@ Return JSON: {"title": string, "content": string}`;
         email,
         enquiry: enquiry ? {
           name: enquiry.name,
-          email: enquiry.email,
           mobile: enquiry.mobile,
           course: enquiry.course,
-          status: enquiry.status
+          status: enquiry.status,
+          followUpDate: enquiry.followUpDate ? new Date(enquiry.followUpDate).toLocaleDateString('en-IN') : 'N/A',
+          createdOn: enquiry.createdAt ? new Date(enquiry.createdAt).toLocaleDateString('en-IN') : 'N/A',
+          timeline: (enquiry.statusHistory || []).map(h => ({
+            status: h.status,
+            note: h.note || '',
+            date: h.changedAt ? new Date(h.changedAt).toLocaleDateString('en-IN') : 'N/A'
+          }))
         } : null,
         admission: admission ? {
           name: admission.name,
@@ -1307,7 +1319,7 @@ Return JSON: {"title": string, "content": string}`;
           status: admission.status
         } : null
       };
-      contextHint = `Student record for email ${email}`;
+      contextHint = `Student record found for email ${email}. Show essential fields and Timeline only.`;
     }
 
     // ─── 11. Record / Multi-Field Search (Name, Course, Mobile, Email) ───
@@ -1326,11 +1338,11 @@ Return JSON: {"title": string, "content": string}`;
       const [enquiries, admissions] = await Promise.all([
         Enquiry.find(searchQuery)
           .populate('assignedTo', 'name')
-          .select('name mobile email course status followUpDate assignedTo')
+          .select('name mobile email course status followUpDate assignedTo statusHistory createdAt')
           .limit(10)
           .lean(),
         Admission.find(searchQuery)
-          .select('name mobile course totalFees installments status')
+          .select('name mobile course totalFees installments status createdAt')
           .limit(10)
           .lean()
       ]);
@@ -1346,11 +1358,15 @@ Return JSON: {"title": string, "content": string}`;
         enquiries: enquiries.map((e) => ({
           name: e.name,
           mobile: e.mobile,
-          email: e.email,
           course: e.course,
           status: e.status,
-          followUpDate: e.followUpDate ? new Date(e.followUpDate).toLocaleDateString('en-IN') : null,
-          assignedTo: e.assignedTo ? e.assignedTo.name : 'Unassigned'
+          followUpDate: e.followUpDate ? new Date(e.followUpDate).toLocaleDateString('en-IN') : 'N/A',
+          createdOn: e.createdAt ? new Date(e.createdAt).toLocaleDateString('en-IN') : 'N/A',
+          timeline: (e.statusHistory || []).map(h => ({
+            status: h.status,
+            note: h.note || '',
+            date: h.changedAt ? new Date(h.changedAt).toLocaleDateString('en-IN') : 'N/A'
+          }))
         })),
         admissions: admissions.map((a) => ({
           name: a.name,
@@ -1363,7 +1379,7 @@ Return JSON: {"title": string, "content": string}`;
           status: a.status
         }))
       };
-      contextHint = `Search results across students, courses, leads for query term "${searchTerm}"`;
+      contextHint = `Search results for "${searchTerm}". Present essential fields (Name, Mobile, Course, Status, Next Follow-up) and chronological Timeline. Avoid redundant details.`;
     }
 
     // ─── 12. General AI Assistance & Custom Multi-Condition Queries ────────
