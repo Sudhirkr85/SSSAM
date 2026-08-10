@@ -1,78 +1,125 @@
-const { Enquiry, Admission, Payment, Note } = require('../models');
+const { Enquiry, Admission, Payment, Note, Attendance, User } = require('../models');
 const { formatCRMResponse, parseJSONResponse } = require('../services/geminiService');
 const catchAsync = require('../utils/catchAsync');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
 
-// Detect query intent from user message
+// Intelligent intent detection from user query
 function detectIntent(query) {
-  const q = query.toLowerCase();
+  const q = query.toLowerCase().trim();
 
-  // Call intent
-  if (q.includes('call karo') || q.includes('call kro') || q.includes('call kr') ||
-      q.includes('call karna') || q.includes('phone karo') || q.includes('phone kro') ||
-      q.includes('call kijiye') || q.includes('ko call') || q.includes('ring karo') ||
-      q.includes('फोन करो') || q.includes('कॉल करो')) {
-    return 'call';
-  }
-
-  // WhatsApp intent
-  if (q.includes('whatsapp') || q.includes('whatsapp karo') || q.includes('whatsapp kro') ||
-      q.includes('whatsapp bhejo') || q.includes('wp karo') || q.includes('wa karo') ||
-      q.includes('message bhejo') || q.includes('व्हाट्सएप')) {
-    return 'whatsapp';
-  }
-
-  // Save note intent
-  if (q.includes('save note') || q.includes('save message') || q.includes('save data') ||
-      q.includes('save information') || q.includes('save details') || q.includes('kuch save') ||
-      q.includes('isey save') || q.includes('isko save') || q.includes('note likho') ||
-      q.includes('सेव करो') || q.includes('लिखो') || q.includes('याद रखना') ||
-      q.includes('save kr do') || q.includes('save kro') || q.includes('save karo')) {
-    return 'save_note';
-  }
-
-  // Get notes intent
-  if (q.includes('my notes') || q.includes('saved notes') || q.includes('saved note') ||
-      q.includes('saved message') || q.includes('saved messages') ||
-      q.includes('mere saved') || q.includes('mere notes') || q.includes('saved list') ||
-      q.includes('क्या सेव किया') || q.includes('नोट्स दिखाओ') || q.includes('नोट्स बताओ')) {
-    return 'get_notes';
-  }
-
-  // Guide intent
-  if (q.includes('help') || q.includes('guide') || q.includes('kaise use') ||
-      q.includes('use kaise') || q.includes('tutorial') || q.includes('kaise chalaye') ||
-      q.includes('मदद') || q.includes('कैसे इस्तेमाल') || q.includes('kaise chalega')) {
-    return 'guide';
-  }
-
-  // Follow-up intent
-  if (q.includes('follow up') || q.includes('followup') || q.includes('follow-up') ||
-      q.includes('फॉलो') || q.includes('aaj') || q.includes('आज') || q.includes('today')) {
-    return 'followup';
-  }
-
-  // Pending fee intent
-  if (q.includes('pending fee') || q.includes('pending fees') || q.includes('fee') ||
-      q.includes('fees') || q.includes('baki') || q.includes('बाकी') ||
-      q.includes('installment') || q.includes('pending') || q.includes('due')) {
-    return 'pending_fee';
-  }
-
-  // Mobile number detection (10 digit number)
-  const mobileMatch = q.match(/\b[6-9]\d{9}\b/);
-  if (mobileMatch) {
+  // 1. Mobile number detection (10 digit starting with 6-9)
+  if (/\b[6-9]\d{9}\b/.test(q)) {
+    if (/\b(call|phone|ring|dial|fon|कॉल|फोन)\b/.test(q)) return 'call';
+    if (/\b(whatsapp|wp|wa|message|msg|व्हाट्सएप)\b/.test(q)) return 'whatsapp';
     return 'mobile_search';
   }
 
-  // Email detection
-  const emailMatch = q.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  if (emailMatch) {
+  // 2. Email detection
+  if (/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(q)) {
     return 'email_search';
   }
 
-  // Default: name search
-  return 'name_search';
+  // 3. Call intent
+  if (/\b(call|phone|ring|dial)\b/.test(q) &&
+      (/\b(karo|kro|kr|karna|kijiye|ko|student|lead|him|her|them)\b/.test(q) || /^call\s+/i.test(q))) {
+    return 'call';
+  }
+
+  // 4. WhatsApp intent
+  if (/\b(whatsapp|wp|wa)\b/.test(q) &&
+      !/\b(draft|write|template|create|banao|format)\b/.test(q)) {
+    return 'whatsapp';
+  }
+
+  // 5. Attendance Report intent
+  if (/\b(attendance|hajri|hazri|punch|punches|kon aaya|who came|who is present|who is absent|leave|weekoff|उपस्थिति|हाजिरी)\b/.test(q)) {
+    return 'attendance_report';
+  }
+
+  // 6. Payment / Revenue / Fee Collection Report intent
+  if (/\b(payment report|collection report|revenue report|payments|fee collection|aaj kitna payment|kitna paisa aaya|aaj ki collection|this month collection|collection summary)\b/.test(q)) {
+    return 'payment_report';
+  }
+
+  // 7. Save note intent
+  if (/\b(save note|save message|save data|save info|note likho|note save|isey save|isko save|yaad rakhna|सेव करो|लिखो)\b/.test(q)) {
+    return 'save_note';
+  }
+
+  // 8. Get notes intent
+  if (/\b(my notes|saved notes|saved note|saved messages|mere notes|saved list|notes dikhao|notes batao|नोट्स)\b/.test(q)) {
+    return 'get_notes';
+  }
+
+  // 8. Update status intent (e.g. Rahul ko CONVERTED kar do)
+  if (/\b(status|converted|interested|not interested|no response|contacted|admission process)\b/.test(q) &&
+      (/\b(kar do|kardo|kr do|set|change|update|mark|banao|kar|kro|kr)\b/.test(q) || q.includes('kar') || q.includes('set') || q.includes('update') || q.includes('change'))) {
+    return 'update_status';
+  }
+
+  // 9. Reschedule follow-up intent (e.g. Sudhir ka follow-up 15 August ko shift kar do)
+  if (/\b(followup|follow up|follow-up)\b/.test(q) &&
+      /\b(reschedule|shift|change|set|postpone|tomorrow|kal|august|september|october|november|december|january|february|march|april|may|june|july|aug|sep|oct|nov|dec)\b/.test(q) &&
+      /\b(kar do|kardo|kr do|set|change|shift|update)\b/.test(q)) {
+    return 'reschedule_followup';
+  }
+
+  // 10. Message Drafting intent (WhatsApp / SMS / Email draft)
+  if (/\b(draft|write|compose|create message|template|message banao|pitch|bhejne ke liye text|sms format|likh do)\b/.test(q)) {
+    return 'draft_message';
+  }
+
+  // 10. Help / Guide intent
+  if (/\b(help|guide|tutorial|kaise use|kaise chalaye|commands|what can you do|features|मदद)\b/.test(q) ||
+      q === 'guide' || q === 'help' || q === 'menu') {
+    return 'guide';
+  }
+
+  // 11. Pending & Upcoming fee intent
+  if (/\b(pending fee|pending fees|due fee|due fees|baki fees|unpaid|installment|installments|fees due|fee pending|kiska fee|fee aayega|fee baki|fees baki|kitna baki|banki|upcoming fee|upcoming fees|date wise|datewise|aane wala fee)\b/.test(q) ||
+      ((q.includes('fee') || q.includes('fees')) && (q.includes('baki') || q.includes('banki') || q.includes('due') || q.includes('aayega') || q.includes('aane') || q.includes('ane') || q.includes('kitna')))) {
+    return 'pending_fee';
+  }
+
+  // 12. Analytics / Summary / Stats intent
+  if (/\b(summary|overview|stats|statistics|analytics|dashboard|report|count|counts|how many|total|performance|conversion|revenue|collection|kitne|kitna|kitni)\b/.test(q)) {
+    return 'analytics_summary';
+  }
+
+  // 13. Follow-up intent
+  if (/\b(follow up|followup|follow-ups|followups|folloup|follwup|folowup|appointments|schedule|reminders|aaj ke lead|aaj ke call)\b/.test(q) || q.includes('folloup') || q.includes('followup')) {
+    return 'followup';
+  }
+
+  // 14. Interested leads intent
+  if (/\b(interested|interested leads|hot leads|interested enquiries|interested student)\b/.test(q)) {
+    return 'interested_leads';
+  }
+
+  // 15. New enquiries intent
+  if (/\b(new enquiry|new enquiries|latest enquiries|fresh enquiries|recent enquiries)\b/.test(q)) {
+    return 'new_enquiries';
+  }
+
+  // 16. Course information intent
+  if (/\b(courses|course list|syllabus|batches|batch timing|fee structure|what courses|konse course|courses offer)\b/.test(q)) {
+    return 'course_info';
+  }
+
+  // 17. Search for student/enquiry record
+  if (/\b(search|find|dikhao|batao|details of|record of|profile of|info of|check)\b/.test(q) &&
+      !/\b(how are you|who are you|what is|why|can you)\b/.test(q)) {
+    return 'record_search';
+  }
+
+  // If user types a short name like "Priya", "Rahul Sharma" (2-3 words, not greetings/questions)
+  const isGreetingOrQuestion = /\b(hi|hello|hey|namaste|morning|evening|how|what|why|who|where|can|thank|thanks|ok|okay)\b/.test(q);
+  if (!isGreetingOrQuestion && /^[a-zA-Z\s]{2,35}$/.test(q) && q.split(/\s+/).length <= 3) {
+    return 'record_search';
+  }
+
+  // 16. General AI / Conversational intent (questions about CRM, greetings, advice)
+  return 'general_ai';
 }
 
 // Extract search term from query
@@ -90,16 +137,16 @@ function extractSearchTerm(query, intent) {
   }
 
   if (intent === 'call' || intent === 'whatsapp') {
-    // Extract name — remove action words
     const cleaned = q
-      .replace(/\b(call|whatsapp|whatsapp|phone|ring|ko|karo|kro|kr|karna|kijiye|bhejo|wp|wa|message|फोन|करो|कॉल|व्हाट्सएप)\b/gi, '')
-      .replace(/[?।,]/g, '')
+      .replace(/\b(call|whatsapp|phone|ring|dial|ko|karo|kro|kr|karna|kijiye|bhejo|send|wp|wa|message|msg|student|lead|contact|him|her|kisi|anyone)\b/gi, '')
+      .replace(/[?।,!]/g, '')
       .trim();
-    return cleaned || null;
+    // If nothing meaningful left, return null so full list is shown
+    if (!cleaned || cleaned.length < 3) return null;
+    return cleaned;
   }
 
   if (intent === 'save_note') {
-    // Extract what to save
     const cleaned = q
       .replace(/^(is message ko\s+)?save\s+(note|message|data)?(\s*karo|\s*kro|\s*kr\s*do)?(\s*:\s*|\s+)/gi, '')
       .replace(/^(सेव करो|लिखो|याद रखना)(\s*:\s*|\s+)/g, '')
@@ -109,11 +156,19 @@ function extractSearchTerm(query, intent) {
     return cleaned || q;
   }
 
-  if (intent === 'name_search') {
-    // Remove common Hindi/English filler words
+  if (intent === 'pending_fee') {
     const cleaned = q
-      .replace(/\b(ka|ki|ke|ko|data|dikhao|batao|detail|show|find|search|tell|me|mujhe|find)\b/gi, '')
-      .replace(/[?।,]/g, '')
+      .replace(/\b(pending|fees|fee|due|installments|installment|baki|banki|kitna|kitne|aaj|today|aj|upcoming|date|wise|datewise|aayega|aane|ane|wala|waala|kiska|kiskaa|kiskka|kiske|batao|dikhao|ka|ki|ke|ko|hai|h|show|list|all|sab|student|leads|lead|info|details|record)\b/gi, '')
+      .replace(/[?।,!]/g, '')
+      .trim();
+    if (!cleaned || cleaned.length < 2) return null;
+    return cleaned;
+  }
+
+  if (intent === 'record_search') {
+    const cleaned = q
+      .replace(/\b(ka|ki|ke|ko|data|dikhao|batao|detail|details|show|find|search|tell|me|mujhe|check|info|profile|record)\b/gi, '')
+      .replace(/[?।,!]/g, '')
       .trim();
     return cleaned || q;
   }
@@ -121,12 +176,11 @@ function extractSearchTerm(query, intent) {
   return null;
 }
 
-
 // Detect language preference from query
 function detectLanguage(query) {
   const q = query.toLowerCase();
   const hindiChars = /[\u0900-\u097F]/;
-  const hindiWords = ['batao', 'dikhao', 'hai', 'hain', 'ka', 'ki', 'ke', 'aaj', 'sab', 'kiska', 'uska', 'baki', 'karo', 'karna', 'mujhe', 'mera'];
+  const hindiWords = ['batao', 'dikhao', 'hai', 'hain', 'ka', 'ki', 'ke', 'aaj', 'sab', 'kiska', 'uska', 'baki', 'karo', 'karna', 'mujhe', 'mera', 'kitna', 'kitne'];
 
   if (hindiChars.test(q) || hindiWords.some((w) => q.includes(w))) {
     return 'hindi';
@@ -152,33 +206,39 @@ function buildClarificationMessage(language, searchTerm, suggestions = []) {
   const safeSearchTerm = searchTerm || 'your query';
   if (!suggestions.length) {
     return language === 'hindi'
-      ? `Mujhe "${safeSearchTerm}" ka exact match nahi mila. Thoda aur specific bolo, jaise poora naam, mobile number, ya email.`
-      : `I couldn't find an exact match for "${safeSearchTerm}". Please be a bit more specific with the full name, mobile number, or email.`;
+      ? `Mujhe "${safeSearchTerm}" ka exact match nahi mila. Thoda aur specific bolo, jaise student ka poora naam ya 10-digit mobile number.`
+      : `I couldn't find an exact match for "${safeSearchTerm}". Please type a student name or 10-digit mobile number.`;
   }
 
-  const suggestionText = suggestions.map((item, index) => `${index + 1}. ${item}`).join('\n');
+  const suggestionText = suggestions.map((item, index) => {
+    const label = typeof item === 'object'
+      ? `${item.name}${item.course ? ` (${item.course})` : ''}${item.mobile ? ` — ${item.mobile}` : ''}`
+      : item;
+    return `${index + 1}. ${label}`;
+  }).join('\n');
+
   return language === 'hindi'
-    ? `Mujhe "${safeSearchTerm}" ka exact match nahi mila. Kya aap inmein se kisi ko dhoondh rahe the?\n${suggestionText}`
-    : `I couldn't find an exact match for "${safeSearchTerm}". Did you mean one of these?\n${suggestionText}`;
+    ? `Kya aap inmein se kisi ko dhoondh rahe the?\n\n${suggestionText}\n\n💡 Naam ya mobile number type karein, ya neeche card par click karein.`
+    : `Did you mean one of these?\n\n${suggestionText}\n\n💡 Type the name or mobile number, or tap a card below.`;
 }
 
 async function findNameSuggestions(searchTerm) {
-  if (!searchTerm || searchTerm.trim().length < 2) {
-    return [];
-  }
+  if (!searchTerm || searchTerm.trim().length < 2) return [];
 
-  const tokens = [...new Set(searchTerm.toLowerCase().split(/\s+/).filter((token) => token.length >= 2))];
-  if (!tokens.length) {
-    return [];
-  }
+  const tokens = [...new Set(searchTerm.toLowerCase().split(/\s+/).filter((t) => t.length >= 2))];
+  if (!tokens.length) return [];
 
   const query = {
-    $or: tokens.map((token) => ({ name: { $regex: token, $options: 'i' } }))
+    $or: tokens.flatMap((token) => [
+      { name: { $regex: token, $options: 'i' } },
+      { course: { $regex: token, $options: 'i' } },
+      { mobile: { $regex: token, $options: 'i' } }
+    ])
   };
 
   const [enquiries, admissions] = await Promise.all([
-    Enquiry.find(query).select('name mobile course').limit(5).lean(),
-    Admission.find(query).select('name mobile course').limit(5).lean()
+    Enquiry.find(query).select('name mobile course').limit(8).lean(),
+    Admission.find(query).select('name mobile course').limit(8).lean()
   ]);
 
   const merged = [...enquiries, ...admissions];
@@ -186,17 +246,40 @@ async function findNameSuggestions(searchTerm) {
   return merged
     .filter((item) => {
       const key = `${item.name}|${item.mobile || ''}`.toLowerCase();
-      if (seen.has(key)) {
-        return false;
-      }
+      if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .slice(0, 3)
-    .map((item) => `${item.name}${item.course ? ` (${item.course})` : ''}${item.mobile ? ` - ${item.mobile}` : ''}`);
+    .slice(0, 6)
+    .map((item) => ({
+      name: item.name,
+      mobile: item.mobile || null,
+      course: item.course || ''
+    }));
 }
 
-// Format date range for today
+async function getAllContactsList() {
+  const [enquiries, admissions] = await Promise.all([
+    Enquiry.find({ mobile: { $exists: true, $ne: null } }).select('name mobile course').limit(10).lean(),
+    Admission.find({ mobile: { $exists: true, $ne: null } }).select('name mobile course').limit(10).lean()
+  ]);
+  const merged = [...admissions, ...enquiries];
+  const seen = new Set();
+  return merged
+    .filter((item) => {
+      const key = `${item.mobile}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 8)
+    .map((item) => ({
+      name: item.name,
+      mobile: item.mobile,
+      course: item.course || ''
+    }));
+}
+
 function getTodayRange() {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -205,11 +288,18 @@ function getTodayRange() {
   return { start, end };
 }
 
+function getMonthRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  return { start, end };
+}
+
 class ChatController {
 
   /**
    * POST /api/chat
-   * Main chat endpoint — processes user query and returns AI-formatted response
+   * Main chat endpoint — processes user queries with intelligent multi-intent AI
    */
   chat = catchAsync(async (req, res) => {
     const { query, responseStyle } = req.body;
@@ -223,39 +313,31 @@ class ChatController {
     const inputMode = resolveInputMode(req.body, language);
     let dbData = {};
     let contextHint = '';
+    let action = null;
 
-    // ─── Call / WhatsApp intent ──────────────────────────────────────────
+    // ─── 1. Call / WhatsApp Actions ───────────────────────────────────────
     if (intent === 'call' || intent === 'whatsapp') {
       const searchTerm = extractSearchTerm(query, intent);
-
-      // Check if mobile number directly given
       const directMobile = query.match(/\b[6-9]\d{9}\b/);
       let targetMobile = null;
       let targetName = null;
       let prefilledText = null;
 
-      // Use Gemini to check if they specified a note subject to attach to WhatsApp
       if (intent === 'whatsapp') {
         try {
-          const sysPrompt = `Analyze the user query. They want to send a WhatsApp message to a student/enquiry.
-Check if they are specifying a saved note's title/subject or keyword to pre-fill the WhatsApp text (e.g. 'WhatsApp Priya admission message' -> studentName: 'Priya', noteKeyword: 'admission message').
-Return a JSON object with keys: "studentName" (string), "noteKeyword" (string or null).`;
-          
+          const sysPrompt = `Analyze query: user wants to WhatsApp a student.
+Extract JSON: {"studentName": string or null, "noteKeyword": string or null}`;
           const parsedWP = await parseJSONResponse(sysPrompt, query);
           if (parsedWP && parsedWP.studentName) {
             targetName = parsedWP.studentName;
-            
-            // Search for student
             const found = await Enquiry.findOne({ name: { $regex: targetName, $options: 'i' } }).select('name mobile').lean()
               || await Admission.findOne({ name: { $regex: targetName, $options: 'i' } }).select('name mobile').lean();
-              
             if (found) {
               targetMobile = found.mobile;
               targetName = found.name;
             }
-            
-            // If they specified a note keyword, search for it
-            if (parsedWP.noteKeyword) {
+
+            if (parsedWP.noteKeyword && req.user) {
               const matchedNote = await Note.findOne({
                 userId: req.user.id,
                 $text: { $search: parsedWP.noteKeyword }
@@ -264,28 +346,24 @@ Return a JSON object with keys: "studentName" (string), "noteKeyword" (string or
                 userId: req.user.id,
                 title: { $regex: parsedWP.noteKeyword, $options: 'i' }
               }).select('content').lean();
-              
-              if (matchedNote) {
-                prefilledText = matchedNote.content;
-              }
+
+              if (matchedNote) prefilledText = matchedNote.content;
             }
           }
         } catch (e) {
-          console.error('Gemini WhatsApp parsing failed:', e);
+          console.error('WhatsApp parse error:', e);
         }
       }
 
-      // Fallback to legacy extraction if Gemini parsing was skipped or failed to find contact
       if (!targetMobile) {
         if (directMobile) {
           targetMobile = directMobile[0];
           const found = await Enquiry.findOne({ mobile: targetMobile }).select('name').lean()
             || await Admission.findOne({ mobile: targetMobile }).select('name').lean();
-          targetName = found ? found.name : `(${targetMobile})`;
+          targetName = found ? found.name : targetMobile;
         } else if (searchTerm && searchTerm.length >= 2) {
           const found = await Enquiry.findOne({ name: { $regex: searchTerm, $options: 'i' } }).select('name mobile').lean()
             || await Admission.findOne({ name: { $regex: searchTerm, $options: 'i' } }).select('name mobile').lean();
-
           if (found) {
             targetMobile = found.mobile;
             targetName = found.name;
@@ -294,27 +372,42 @@ Return a JSON object with keys: "studentName" (string), "noteKeyword" (string or
       }
 
       if (!targetMobile) {
-        const suggestions = await findNameSuggestions(searchTerm || query);
-        const notFound = buildClarificationMessage(language, searchTerm || query, suggestions);
+        // If user typed generic "call student" or "whatsapp message" — show full list
+        const isGenericQuery = !searchTerm || searchTerm.trim().length < 3 ||
+          /^(student|contact|anyone|kisi|sabko|sb)$/.test((searchTerm || '').toLowerCase().trim());
+
+        let suggestions;
+        if (isGenericQuery) {
+          suggestions = await getAllContactsList();
+        } else {
+          suggestions = await findNameSuggestions(searchTerm || query);
+        }
+
+        const msgHeader = isGenericQuery
+          ? (language === 'hindi'
+            ? `📞 Kisko ${intent === 'call' ? 'call' : 'WhatsApp'} karna hai? Neeche se choose karein:`
+            : `📞 Who would you like to ${intent === 'call' ? 'call' : 'WhatsApp'}? Pick from the list below:`)
+          : buildClarificationMessage(language, searchTerm || query, suggestions);
+
         return successResponse(res, {
-          message: notFound,
+          message: msgHeader,
           intent,
           language,
-          action: null
-        }, 'Chat response generated');
+          action: null,
+          suggestions: suggestions.length ? suggestions : null
+        }, 'Contact not found');
       }
 
-      const actionType = intent; // 'call' or 'whatsapp'
-      
+      const actionType = intent;
       let aiMsg = '';
       if (actionType === 'whatsapp' && prefilledText) {
         aiMsg = language === 'hindi'
-          ? `💬 ${targetName} ko saved template ke sath WhatsApp karne ke liye ready hai!\n\n**Template Content:**\n"${prefilledText}"\n\nNeeche button dabaiye WhatsApp send karne ke liye! 👇`
-          : `💬 Ready to WhatsApp ${targetName} with the saved template!\n\n**Template Content:**\n"${prefilledText}"\n\nTap the button below to send! 👇`;
+          ? `💬 **${targetName}** (${targetMobile}) ke liye WhatsApp template ready hai:\n\n> "${prefilledText}"\n\nNeeche button par click karke direct send karein! 👇`
+          : `💬 Ready to WhatsApp **${targetName}** (${targetMobile}) with the template:\n\n> "${prefilledText}"\n\nTap the button below to send! 👇`;
       } else {
         aiMsg = language === 'hindi'
-          ? `📞 ${targetName} ka number hai: **${targetMobile}**\nNeeche button dabao ${actionType === 'call' ? 'call' : 'WhatsApp'} karne ke liye! 👇`
-          : `📞 ${targetName}'s number: **${targetMobile}**\nTap the button below to ${actionType === 'call' ? 'call' : 'WhatsApp'}! 👇`;
+          ? `📞 **${targetName}** • Mobile: \`${targetMobile}\`\n\nNeeche button dabakar direct ${actionType === 'call' ? 'Call' : 'WhatsApp'} karein! 👇`
+          : `📞 **${targetName}** • Mobile: \`${targetMobile}\`\n\nTap below to ${actionType === 'call' ? 'Call' : 'WhatsApp'} immediately! 👇`;
       }
 
       return successResponse(res, {
@@ -322,52 +415,47 @@ Return a JSON object with keys: "studentName" (string), "noteKeyword" (string or
         intent,
         language,
         action: {
-          type: actionType,       // 'call' or 'whatsapp'
+          type: actionType,
           mobile: targetMobile,
           name: targetName,
           text: prefilledText
         }
-      }, 'Chat response generated successfully');
+      }, 'Action generated');
     }
 
-    // ─── Save Custom Note intent ──────────────────────────────────────────
+    // ─── 2. Save Custom Note ───────────────────────────────────────────────
     if (intent === 'save_note') {
       let noteContent = extractSearchTerm(query, 'save_note');
       let noteTitle = 'General';
 
       try {
-        // Use Gemini to parse structured note
-        const sysPrompt = `You are a parser. Analyze the user query wishing to save a note/message template.
-Extract:
-1. 'title' (a short subject, label, or keyword like 'Admission confirmed', 'Fee reminder', etc.). If no subject/title is clear, use 'General'.
-2. 'content' (the actual complete message text to save).
-Return JSON object with keys: "title" and "content".`;
-        
+        const sysPrompt = `Extract note title and content from query.
+Return JSON: {"title": string, "content": string}`;
         const parsedNote = await parseJSONResponse(sysPrompt, query);
         if (parsedNote && parsedNote.content) {
           noteTitle = parsedNote.title || 'General';
           noteContent = parsedNote.content;
         }
       } catch (e) {
-        console.error('Gemini JSON note parsing failed:', e);
+        console.error('Note parse error:', e);
       }
 
       if (!noteContent || noteContent.trim().length < 2) {
         const errResponse = language === 'hindi'
-          ? '❌ Kuch valid message ya note likhne ko kaho (example: "save note: kal test hai").'
-          : '❌ Please provide a valid message to save (example: "save note: test tomorrow").';
+          ? '❌ Kripya note ka message likhiye (Jaise: *"save note: Kal batch timings 10 AM hain"*).'
+          : '❌ Please provide a message to save (e.g. *"save note: Batch timings are 10 AM tomorrow"*).';
         return successResponse(res, { message: errResponse, intent, language, action: null }, 'Note empty');
       }
 
       const newNote = await Note.create({
-        userId: req.user.id,
+        userId: req.user ? req.user.id : null,
         title: noteTitle,
         content: noteContent
       });
 
       const responseText = language === 'hindi'
-        ? `✅ Subject **"${noteTitle}"** ke sath note successfully save ho gaya hai!\n\n**Note Content:**\n"${noteContent}"\n\nIs message ko kisi ko WhatsApp karne ke liye bole: *"WhatsApp [Student Name] ko [Subject]"*`
-        : `✅ Note successfully saved with subject **"${noteTitle}"**!\n\n**Note Content:**\n"${noteContent}"\n\nTo send this to someone via WhatsApp, say: *"WhatsApp [Student Name] [Subject]"*`;
+        ? `📝 **Note Successfully Saved!**\n\n📌 **Title:** ${noteTitle}\n📄 **Content:** "${noteContent}"\n\n💡 Kisi student ko WhatsApp bhejne ke liye bole: *"WhatsApp [Student Name] [Title]"*`
+        : `📝 **Note Successfully Saved!**\n\n📌 **Title:** ${noteTitle}\n📄 **Content:** "${noteContent}"\n\n💡 To send this to a student on WhatsApp, say: *"WhatsApp [Student Name] [Title]"*`;
 
       return successResponse(res, {
         message: responseText,
@@ -375,50 +463,40 @@ Return JSON object with keys: "title" and "content".`;
         language,
         action: null,
         rawData: newNote
-      }, 'Note saved successfully');
+      }, 'Note saved');
     }
 
-    // ─── Get Saved Notes intent ───────────────────────────────────────────
+    // ─── 3. Get Saved Notes ────────────────────────────────────────────────
     if (intent === 'get_notes') {
-      // Check if user is searching for specific notes by keyword
-      const searchKeyword = extractSearchTerm(query, 'get_notes');
+      const filter = req.user ? { userId: req.user.id } : {};
 
-      let notes;
-      if (searchKeyword && searchKeyword.length > 1) {
-        // Try text search first, then regex fallback
-        notes = await Note.find({
-          userId: req.user.id,
-          $or: [
-            { $text: { $search: searchKeyword } },
-            { title: { $regex: searchKeyword, $options: 'i' } },
-            { content: { $regex: searchKeyword, $options: 'i' } }
-          ]
-        }).sort({ createdAt: -1 }).limit(10).lean();
-      } else {
-        notes = await Note.find({ userId: req.user.id })
-          .sort({ createdAt: -1 })
-          .limit(15)
-          .lean();
-      }
+      let notes = await Note.find(filter)
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
 
       if (!notes || notes.length === 0) {
         const noNotesMsg = language === 'hindi'
-          ? `📝 Koi saved note nahi mila.\n\n**Note save karne ke liye** kaho: *"mujhe note save karna hai"* ya *"save note"*\n\nMain step-by-step help karunga! 👇`
-          : `📝 No saved notes found.\n\n**To save a note** say: *"I want to save a note"* or *"save note"*\n\nI'll guide you step by step! 👇`;
+          ? `📝 Koi saved note nahi mila.\n\nNote save karne ke liye kaho: *"save note: Kal class off rahegi"*`
+          : `📝 No saved notes found.\n\nTo save a note, say: *"save note: Class is off tomorrow"*`;
         return successResponse(res, { message: noNotesMsg, intent, language, action: null }, 'No notes');
       }
 
-      const headerMsg = language === 'hindi'
-        ? `📋 **${notes.length} saved note${notes.length > 1 ? 's' : ''} mile:**\n\nKisi bhi note ke neeche **"WhatsApp Bhejo"** dabao kisi student ko send karne ke liye! 👇`
-        : `📋 **Found ${notes.length} saved note${notes.length > 1 ? 's' : ''}:**\n\nTap **"WhatsApp Bhejo"** below any note to send it to a student! 👇`;
+      let msg = language === 'hindi'
+        ? `📋 **Aapke Saved Notes (${notes.length}):**\n\n`
+        : `📋 **Your Saved Notes (${notes.length}):**\n\n`;
+
+      notes.forEach((n, i) => {
+        msg += `${i + 1}. 📌 **${n.title || 'General'}**\n   "${n.content}"\n\n`;
+      });
 
       return successResponse(res, {
-        message: headerMsg,
+        message: msg.trim(),
         intent,
         language,
         action: {
           type: 'notes_list',
-          notes: notes.map(n => ({
+          notes: notes.map((n) => ({
             _id: n._id,
             title: n.title || 'General',
             content: n.content,
@@ -428,150 +506,467 @@ Return JSON object with keys: "title" and "content".`;
       }, 'Notes fetched');
     }
 
-
-    // ─── Chatbot Guide/Help intent ────────────────────────────────────────
-    if (intent === 'guide') {
-      const helpMsg = language === 'hindi'
-        ? `📖 **SSSAM AI Chat Assistant Guide**\n\n` +
-          `Aap is Chatbot se voice (बोलकर) ya text (लिखकर) data manage kar sakte hain:\n\n` +
-          `🔍 **Student/Enquiry Search:**\n` +
-          `• *"Rahul ka details batao"* (Naam se search)\n` +
-          `• *"9876543210 ka status kya hai?"* (Mobile se search)\n` +
-          `• *"priya@gmail.com ka data dikhao"* (Email se search)\n\n` +
-          `📅 **Follow-ups:**\n` +
-          `• *"aaj ke follow-ups batao"* (Aaj ki appointments/follow-ups)\n\n` +
-          `💰 **Fees & Payments:**\n` +
-          `• *"pending fees kiske hai"* (Pending fee structure wale students)\n` +
-          `• *"Amit ki kitni fee pending hai?"* (Kisi student ki specific fee detail)\n\n` +
-          `📞 **Calling & WhatsApp Actions:**\n` +
-          `• *"Priya ko WhatsApp karo"* (Direct chat link button milega)\n` +
-          `• *"Rohan ko call karo"* (Direct dialing button milega)\n\n` +
-          `📝 **Custom Notes & Messages:**\n` +
-          `• *"save note: Aaj shaam ko new admissions check karne hain"* (Database mein save karne ke liye)\n` +
-          `• *"mere saved messages dikhao"* (Aapke save kiye saare notes list karne ke liye)\n\n` +
-          `🔊 Har message ke niche **Sunao** dabakar audio sun sakte hain!`
-        : `📖 **SSSAM AI Chat Assistant Guide**\n\n` +
-          `You can interact with this AI assistant using Voice or Typing:\n\n` +
-          `🔍 **Search Records:**\n` +
-          `• *"Show details of Rahul"* (Search by name)\n` +
-          `• *"Search status for 9876543210"* (Search by phone)\n` +
-          `• *"Find student priya@gmail.com"* (Search by email)\n\n` +
-          `📅 **Follow-ups:**\n` +
-          `• *"show today follow-ups"* (List of today's follow-up tasks)\n\n` +
-          `💰 **Fees Check:**\n` +
-          `• *"who has pending fees"* (List students with due amount)\n` +
-          `• *"how much fee is pending for Amit"* (Specific student fee details)\n\n` +
-          `📞 **Call/WhatsApp Commands:**\n` +
-          `• *"Call Rohan"* or *"WhatsApp Priya"* (Shows direct call/chat action buttons)\n\n` +
-          `📝 **Save Personal Notes:**\n` +
-          `• *"save note: review registrations tomorrow"* (Saves text directly to DB)\n` +
-          `• *"show my saved notes"* (Retrieves all saved notes)\n\n` +
-          `🔊 Tap **Sunao** below any response to hear it out loud!`;
-
-      return successResponse(res, {
-        message: helpMsg,
-        intent,
-        language,
-        action: null
-      }, 'Guide response generated');
+    // ─── 4. Message Drafting Assistant ─────────────────────────────────────
+    if (intent === 'draft_message') {
+      dbData = {
+        type: 'message_drafting',
+        institute: 'SSSAM Academy & Coaching',
+        request: query
+      };
+      contextHint = `Draft a high-converting, professional WhatsApp/SMS template based on the user's request: "${query}"`;
     }
 
-    // ─── Follow-up queries ───────────────────────────────────────────────
-    if (intent === 'followup') {
-      const { start, end } = getTodayRange();
+    // ─── 4A. Staff Attendance Report (Admin Only) ──────────────────────────
+    else if (intent === 'attendance_report') {
+      const userRole = (req.user && req.user.role) ? req.user.role.toLowerCase() : '';
+      if (userRole !== 'admin' && userRole !== 'superadmin') {
+        const accessDeniedMsg = language === 'hindi'
+          ? '🔒 **Access Restricted**: Staff Attendance Report sirf Admin dekh sakte hain.'
+          : '🔒 **Access Restricted**: Staff Attendance Report can only be viewed by Administrators.';
+        return successResponse(res, { message: accessDeniedMsg, intent, language, action: null }, 'Access denied');
+      }
 
-      const followups = await Enquiry.find({
-        followUpDate: { $gte: start, $lte: end }
+      const { start, end } = getTodayRange();
+      const allUsers = await User.find({ status: { $ne: 'INACTIVE' } }).select('name email role mobile').lean();
+      const todayPunches = await Attendance.find({
+        timestamp: { $gte: start, $lte: end }
       })
-        .populate('assignedTo', 'name')
-        .select('name mobile course status followUpDate assignedTo')
-        .sort({ followUpDate: 1 })
-        .limit(50)
+        .populate('userId', 'name role mobile')
+        .sort({ timestamp: 1 })
         .lean();
 
+      const userPunchMap = {};
+      todayPunches.forEach((p) => {
+        const uId = p.userId?._id?.toString() || p.userId?.toString();
+        if (!userPunchMap[uId]) {
+          userPunchMap[uId] = { in: null, out: null, leave: false, weekoff: false };
+        }
+        if (p.type === 'IN' && !userPunchMap[uId].in) {
+          userPunchMap[uId].in = p.timestamp;
+        } else if (p.type === 'OUT') {
+          userPunchMap[uId].out = p.timestamp;
+        } else if (p.type === 'LEAVE') {
+          userPunchMap[uId].leave = true;
+        } else if (p.type === 'WEEKOFF') {
+          userPunchMap[uId].weekoff = true;
+        }
+      });
+
+      let presentCount = 0;
+      let absentCount = 0;
+      let leaveCount = 0;
+      let weekoffCount = 0;
+
+      const staffList = allUsers.map((u) => {
+        const p = userPunchMap[u._id.toString()];
+        let status = 'ABSENT';
+        let inTime = null;
+        let outTime = null;
+
+        if (p) {
+          if (p.leave) {
+            status = 'LEAVE';
+            leaveCount++;
+          } else if (p.weekoff) {
+            status = 'WEEKOFF';
+            weekoffCount++;
+          } else if (p.in) {
+            status = p.out ? 'PUNCHED OUT' : 'PRESENT (IN)';
+            presentCount++;
+            inTime = new Date(p.in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+            if (p.out) {
+              outTime = new Date(p.out).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+            }
+          } else {
+            absentCount++;
+          }
+        } else {
+          absentCount++;
+        }
+
+        return {
+          name: u.name,
+          role: u.role,
+          mobile: u.mobile,
+          status,
+          inTime,
+          outTime
+        };
+      });
+
       dbData = {
-        type: 'today_followups',
+        type: 'attendance_report',
         date: new Date().toLocaleDateString('en-IN'),
-        count: followups.length,
-        followups: followups.map(f => ({
-          name: f.name,
-          mobile: f.mobile,
-          course: f.course,
-          status: f.status,
-          followUpTime: f.followUpDate ? new Date(f.followUpDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'N/A',
-          assignedTo: f.assignedTo ? f.assignedTo.name : 'Unassigned'
-        }))
+        totalStaff: allUsers.length,
+        present: presentCount,
+        absent: absentCount,
+        onLeave: leaveCount,
+        weekoff: weekoffCount,
+        staff: staffList
       };
-      contextHint = `Today's follow-up list for ${new Date().toLocaleDateString('en-IN')}`;
+      contextHint = `Today's Staff Attendance Report for ${new Date().toLocaleDateString('en-IN')}: Total ${allUsers.length}, Present ${presentCount}, Absent ${absentCount}, Leave ${leaveCount}`;
     }
 
-    // ─── Pending fee queries ─────────────────────────────────────────────
-    else if (intent === 'pending_fee') {
-      const searchTerm = extractSearchTerm(query, 'name_search');
+    // ─── 4B. Payment & Fee Collection Report ───────────────────────────────
+    else if (intent === 'payment_report') {
+      const { start: todayStart, end: todayEnd } = getTodayRange();
+      const { start: monthStart, end: monthEnd } = getMonthRange();
 
-      // Check if searching for specific student or all
-      const isSpecificSearch = searchTerm && searchTerm.length > 2 &&
-        !['pending', 'fee', 'fees', 'sab', 'all', 'sabki', 'kitna'].some(w => searchTerm.includes(w));
+      const [todayPayments, monthPayments, recentPayments] = await Promise.all([
+        Payment.find({ paymentDate: { $gte: todayStart, $lte: todayEnd }, status: 'ACTIVE' }).lean(),
+        Payment.find({ paymentDate: { $gte: monthStart, $lte: monthEnd }, status: 'ACTIVE' }).lean(),
+        Payment.find({ status: 'ACTIVE' })
+          .populate({ path: 'admissionId', select: 'name mobile course' })
+          .sort({ paymentDate: -1 })
+          .limit(10)
+          .lean()
+      ]);
 
-      let admissionQuery = {};
-      if (isSpecificSearch) {
-        admissionQuery = {
-          $or: [
-            { name: { $regex: searchTerm, $options: 'i' } },
-            { mobile: { $regex: searchTerm, $options: 'i' } }
-          ]
+      const todayTotal = todayPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const monthTotal = monthPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      dbData = {
+        type: 'payment_report',
+        todayCollection: todayTotal,
+        monthCollection: monthTotal,
+        todayCount: todayPayments.length,
+        monthCount: monthPayments.length,
+        recentTransactions: recentPayments.map((p) => ({
+          studentName: p.admissionId?.name || 'Student',
+          mobile: p.admissionId?.mobile,
+          course: p.admissionId?.course,
+          amount: p.amount,
+          mode: p.paymentMode,
+          date: new Date(p.paymentDate).toLocaleDateString('en-IN')
+        }))
+      };
+      contextHint = `Live Payment & Fee Collection Report: Today ₹${todayTotal.toLocaleString('en-IN')} (${todayPayments.length} txn), This Month ₹${monthTotal.toLocaleString('en-IN')}`;
+    }
+
+    // ─── 5. Analytics & Live CRM Summary ──────────────────────────────────
+    else if (intent === 'analytics_summary') {
+      const today = getTodayRange();
+      const month = getMonthRange();
+
+      const [
+        totalAdmissions,
+        monthAdmissions,
+        totalEnquiries,
+        todayEnquiries,
+        todayFollowups,
+        admissionsData
+      ] = await Promise.all([
+        Admission.countDocuments({ status: 'ACTIVE' }),
+        Admission.countDocuments({ admissionDate: { $gte: month.start, $lte: month.end } }),
+        Enquiry.countDocuments(),
+        Enquiry.countDocuments({ createdAt: { $gte: today.start, $lte: today.end } }),
+        Enquiry.countDocuments({ followUpDate: { $gte: today.start, $lte: today.end } }),
+        Admission.find({ status: 'ACTIVE' }).select('installments registrationAmount totalFees course').lean()
+      ]);
+
+      let totalCollected = 0;
+      let totalPending = 0;
+      const courseCounts = {};
+
+      admissionsData.forEach((adm) => {
+        totalCollected += (adm.registrationAmount || 0);
+        if (adm.course) {
+          courseCounts[adm.course] = (courseCounts[adm.course] || 0) + 1;
+        }
+        (adm.installments || []).forEach((inst) => {
+          if (inst.status === 'PAID') totalCollected += inst.amount;
+          if (inst.status === 'PENDING') totalPending += inst.amount;
+        });
+      });
+
+      dbData = {
+        type: 'crm_analytics_summary',
+        totalActiveStudents: totalAdmissions,
+        newAdmissionsThisMonth: monthAdmissions,
+        totalEnquiries,
+        todayNewEnquiries: todayEnquiries,
+        todayPendingFollowups: todayFollowups,
+        totalFeesCollected: `₹${totalCollected.toLocaleString('en-IN')}`,
+        totalPendingFees: `₹${totalPending.toLocaleString('en-IN')}`,
+        topCourses: Object.entries(courseCounts).map(([c, count]) => `${c} (${count} students)`).slice(0, 5)
+      };
+      contextHint = 'Comprehensive live CRM performance, revenue, admissions, and enquiries summary';
+    }
+
+    // ─── 6. Course & Batch Info ───────────────────────────────────────────
+    else if (intent === 'course_info') {
+      const admissions = await Admission.find().select('course totalFees').lean();
+      const coursesMap = {};
+
+      admissions.forEach((a) => {
+        if (!a.course) return;
+        if (!coursesMap[a.course]) {
+          coursesMap[a.course] = { count: 0, totalFees: 0 };
+        }
+        coursesMap[a.course].count++;
+        coursesMap[a.course].totalFees += (a.totalFees || 0);
+      });
+
+      const courseList = Object.entries(coursesMap).map(([name, val]) => ({
+        courseName: name,
+        enrolledStudents: val.count,
+        averageFee: `₹${Math.round(val.totalFees / (val.count || 1)).toLocaleString('en-IN')}`
+      }));
+
+      dbData = {
+        type: 'course_catalog',
+        totalAvailableCourses: courseList.length,
+        courses: courseList
+      };
+      contextHint = 'List of courses offered with enrollment statistics and fee details';
+    }
+
+    // ─── 7. Follow-up List (Today or All Overdue/Pending) ───────────────────
+    else if (intent === 'followup') {
+      const { start, end } = getTodayRange();
+      const isPendingSearch = /\b(pending|panding|overdue|baki|purane|all|sab|past)\b/.test(query.toLowerCase());
+
+      let filter = { followUpDate: { $gte: start, $lte: end } };
+      if (isPendingSearch) {
+        filter = {
+          followUpDate: { $lte: end },
+          status: { $nin: ['CONVERTED', 'NOT_INTERESTED', 'ADMISSION_PROCESS'] }
         };
       }
 
-      const admissions = await Admission.find(admissionQuery)
-        .select('name mobile course totalFees registrationAmount installments status')
+      const followups = await Enquiry.find(filter)
+        .populate('assignedTo', 'name')
+        .select('name mobile course status followUpDate assignedTo')
+        .sort({ followUpDate: 1 })
         .limit(20)
         .lean();
 
-      const studentsWithPending = admissions
-        .map(a => {
-          const pendingInstallments = a.installments.filter(i => i.status === 'PENDING');
-          const pendingAmount = pendingInstallments.reduce((sum, i) => sum + i.amount, 0);
-          const paidAmount = a.installments
-            .filter(i => i.status === 'PAID')
-            .reduce((sum, i) => sum + i.amount, 0) + a.registrationAmount;
-
-          return {
-            name: a.name,
-            mobile: a.mobile,
-            course: a.course,
-            totalFees: a.totalFees,
-            paidAmount,
-            pendingAmount,
-            pendingInstallments: pendingInstallments.map(i => ({
-              amount: i.amount,
-              dueDate: i.dueDate ? new Date(i.dueDate).toLocaleDateString('en-IN') : 'N/A'
-            }))
-          };
-        })
-        .filter(s => s.pendingAmount > 0);
-
       dbData = {
-        type: 'pending_fees',
-        searchTerm: isSpecificSearch ? searchTerm : 'all',
-        count: studentsWithPending.length,
-        students: studentsWithPending
+        type: isPendingSearch ? 'pending_followups' : 'today_followups',
+        date: new Date().toLocaleDateString('en-IN'),
+        count: followups.length,
+        followups: followups.map((f) => ({
+          name: f.name,
+          mobile: f.mobile,
+          course: f.course || 'N/A',
+          status: f.status,
+          followUpDate: f.followUpDate ? new Date(f.followUpDate).toLocaleDateString('en-IN') : 'Today',
+          followUpTime: f.followUpDate ? new Date(f.followUpDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Today',
+          assignedTo: f.assignedTo ? f.assignedTo.name : 'Counselor'
+        }))
       };
-      contextHint = isSpecificSearch
-        ? `Pending fee details for students matching "${searchTerm}"`
-        : 'All students with pending fees';
+      contextHint = isPendingSearch
+        ? `Pending & overdue follow-up tasks count: ${followups.length}`
+        : `Today's follow-up task list for ${new Date().toLocaleDateString('en-IN')}`;
     }
 
-    // ─── Mobile number search ────────────────────────────────────────────
+    // ─── 8. Pending & Upcoming Fees (Intelligent Fee Assistant) ─────────────
+    else if (intent === 'pending_fee') {
+      const qLower = query.toLowerCase();
+      const isTodaySearch = /\b(aaj|today|aj)\b/.test(qLower);
+      const isUpcomingSearch = /\b(upcoming|aane wala|aane waala|next|date wise|datewise|aane wali|schedule)\b/.test(qLower);
+      const studentNameSearch = extractSearchTerm(query, 'pending_fee');
+
+      let admissions = [];
+      if (studentNameSearch) {
+        admissions = await Admission.find({
+          $or: [
+            { name: { $regex: studentNameSearch, $options: 'i' } },
+            { mobile: { $regex: studentNameSearch, $options: 'i' } }
+          ]
+        }).select('name mobile course totalFees registrationAmount installments status').lean();
+      } else {
+        admissions = await Admission.find({ status: { $ne: 'CANCELLED' } })
+          .select('name mobile course totalFees registrationAmount installments status')
+          .limit(50)
+          .lean();
+      }
+
+      const todayRange = getTodayRange();
+      let totalPendingSum = 0;
+      const feeReportList = [];
+
+      admissions.forEach((a) => {
+        const pendingInst = (a.installments || []).filter((i) => i.status === 'PENDING');
+        if (pendingInst.length === 0) return;
+
+        let filteredInst = pendingInst;
+
+        // If today search, filter installments due today
+        if (isTodaySearch) {
+          filteredInst = pendingInst.filter((i) => {
+            if (!i.dueDate) return false;
+            const d = new Date(i.dueDate);
+            return d >= todayRange.start && d <= todayRange.end;
+          });
+        }
+
+        const pendingAmt = filteredInst.reduce((sum, i) => sum + (i.amount || 0), 0);
+        if (pendingAmt <= 0 && (isTodaySearch || studentNameSearch)) return;
+
+        const totalStudentPending = pendingInst.reduce((sum, i) => sum + (i.amount || 0), 0);
+        totalPendingSum += totalStudentPending;
+
+        feeReportList.push({
+          name: a.name,
+          mobile: a.mobile,
+          course: a.course || 'N/A',
+          totalFees: a.totalFees || 0,
+          pendingAmount: totalStudentPending,
+          queryFilteredPending: pendingAmt,
+          installments: filteredInst.map((i) => ({
+            amount: i.amount,
+            dueDateRaw: i.dueDate,
+            dueDate: i.dueDate ? new Date(i.dueDate).toLocaleDateString('en-IN') : 'Upcoming'
+          }))
+        });
+      });
+
+      // Sort date-wise if upcoming search
+      if (isUpcomingSearch) {
+        feeReportList.sort((a, b) => {
+          const dateA = a.installments[0]?.dueDateRaw ? new Date(a.installments[0].dueDateRaw) : new Date(8640000000000000);
+          const dateB = b.installments[0]?.dueDateRaw ? new Date(b.installments[0].dueDateRaw) : new Date(8640000000000000);
+          return dateA - dateB;
+        });
+      }
+
+      dbData = {
+        type: isTodaySearch ? 'today_due_fees' : (isUpcomingSearch ? 'upcoming_fees_datewise' : 'pending_fees'),
+        searchMode: isTodaySearch ? 'today' : (isUpcomingSearch ? 'upcoming' : (studentNameSearch ? 'student' : 'all')),
+        searchedStudent: studentNameSearch || null,
+        count: feeReportList.length,
+        totalPendingAmount: `₹${totalPendingSum.toLocaleString('en-IN')}`,
+        students: feeReportList
+      };
+
+      if (studentNameSearch) {
+        contextHint = `Fee query for student "${studentNameSearch}": ${feeReportList.length ? `Found student ${feeReportList[0].name}, total pending amount ₹${feeReportList[0].pendingAmount}` : `No pending fees found for "${studentNameSearch}"`}`;
+      } else if (isTodaySearch) {
+        contextHint = `Students whose fee installments are due today (${new Date().toLocaleDateString('en-IN')}): ${feeReportList.length} students`;
+      } else if (isUpcomingSearch) {
+        contextHint = `Upcoming date-wise fee installment schedule for students in CRM sorted by due date`;
+      } else {
+        contextHint = `Overall pending fee list: ${feeReportList.length} students with pending installments`;
+      }
+    }
+
+    // ─── Direct Status Update via Chat (Guided Confirmation + Remarks) ─────────
+    else if (intent === 'update_status') {
+      const qLower = query.toLowerCase();
+      let targetStatus = 'CONVERTED';
+      if (qLower.includes('converted')) targetStatus = 'CONVERTED';
+      else if (qLower.includes('interested')) targetStatus = 'INTERESTED';
+      else if (qLower.includes('not interested')) targetStatus = 'NOT_INTERESTED';
+      else if (qLower.includes('no response')) targetStatus = 'NO_RESPONSE';
+      else if (qLower.includes('contacted')) targetStatus = 'CONTACTED';
+      else if (qLower.includes('admission')) targetStatus = 'ADMISSION_PROCESS';
+
+      let studentName = extractSearchTerm(query, 'record_search') || '';
+      studentName = studentName
+        .replace(/\b(status|converted|interested|not interested|no response|contacted|admission|process|kar|do|kardo|kr|set|change|update|mark|banao)\b/gi, '')
+        .trim();
+
+      if (studentName && studentName.length >= 2) {
+        const enquiry = await Enquiry.findOne({ name: { $regex: studentName, $options: 'i' } });
+        if (enquiry) {
+          action = {
+            type: 'status_update_prompt',
+            enquiryId: enquiry._id,
+            name: enquiry.name,
+            currentStatus: enquiry.status,
+            newStatus: targetStatus
+          };
+          dbData = { type: 'status_update_prompt', name: enquiry.name, currentStatus: enquiry.status, newStatus: targetStatus };
+          contextHint = `Found enquiry "${enquiry.name}". Confirm if user wants to update status from "${enquiry.status}" to "${targetStatus}" and ask if they want to add a remark/note before saving to database.`;
+        } else {
+          dbData = { type: 'status_update_failed', searchedName: studentName };
+          contextHint = `Could not find any enquiry matching "${studentName}" to update status.`;
+        }
+      }
+    }
+
+    // ─── Direct Follow-up Reschedule via Chat ──────────────────────────────
+    else if (intent === 'reschedule_followup') {
+      const qLower = query.toLowerCase();
+      let targetDate = new Date();
+      if (qLower.includes('tomorrow') || qLower.includes('kal')) {
+        targetDate.setDate(targetDate.getDate() + 1);
+      } else {
+        const dateMatch = query.match(/\b(\d{1,2})\s*(st|nd|rd|th)?\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)?\b/i);
+        if (dateMatch) {
+          const day = parseInt(dateMatch[1]);
+          targetDate.setDate(day);
+        }
+      }
+
+      let studentName = extractSearchTerm(query, 'record_search') || '';
+      studentName = studentName
+        .replace(/\b(followup|follow up|follow-up|reschedule|shift|change|set|postpone|tomorrow|kal|august|september|october|november|december|january|february|march|april|june|july|aug|sep|oct|nov|dec|kar|do|kardo|kr|update)\b/gi, '')
+        .trim();
+
+      if (studentName && studentName.length >= 2) {
+        const enquiry = await Enquiry.findOne({ name: { $regex: studentName, $options: 'i' } });
+        if (enquiry) {
+          enquiry.followUpDate = targetDate;
+          await enquiry.save();
+          dbData = { type: 'followup_rescheduled', name: enquiry.name, newDate: targetDate.toLocaleDateString('en-IN') };
+          contextHint = `Successfully rescheduled follow-up date for "${enquiry.name}" to ${targetDate.toLocaleDateString('en-IN')} in CRM database.`;
+        } else {
+          dbData = { type: 'reschedule_failed', searchedName: studentName };
+          contextHint = `Could not find any enquiry matching "${studentName}" to reschedule follow-up.`;
+        }
+      }
+    }
+
+    // ─── 8B. Interested Leads ──────────────────────────────────────────────
+    else if (intent === 'interested_leads') {
+      const leads = await Enquiry.find({ status: { $in: ['INTERESTED', 'ADMISSION_PROCESS', 'CONTACTED', 'FOLLOW_UP'] } })
+        .sort({ updatedAt: -1 })
+        .limit(12)
+        .lean();
+
+      dbData = {
+        type: 'interested_leads',
+        count: leads.length,
+        leads: leads.map(l => ({
+          name: l.name,
+          mobile: l.mobile,
+          course: l.course || 'N/A',
+          status: l.status,
+          followUpDate: l.followUpDate ? new Date(l.followUpDate).toLocaleDateString('en-IN') : 'N/A'
+        }))
+      };
+      contextHint = `List of ${leads.length} high-potential interested enquiries in CRM`;
+    }
+
+    // ─── 8C. New Enquiries ──────────────────────────────────────────────────
+    else if (intent === 'new_enquiries') {
+      const enquiries = await Enquiry.find()
+        .sort({ createdAt: -1 })
+        .limit(12)
+        .lean();
+
+      dbData = {
+        type: 'new_enquiries',
+        count: enquiries.length,
+        enquiries: enquiries.map(e => ({
+          name: e.name,
+          mobile: e.mobile,
+          course: e.course || 'N/A',
+          status: e.status || 'NEW',
+          date: new Date(e.createdAt).toLocaleDateString('en-IN')
+        }))
+      };
+      contextHint = `List of ${enquiries.length} recent new enquiries created in CRM`;
+    }
+
+    // ─── 9. Mobile Search ─────────────────────────────────────────────────
     else if (intent === 'mobile_search') {
       const mobile = extractSearchTerm(query, 'mobile_search');
-
       const [enquiry, admission] = await Promise.all([
-        Enquiry.findOne({ mobile })
-          .populate('assignedTo', 'name')
-          .lean(),
-        Admission.findOne({ mobile })
-          .lean()
+        Enquiry.findOne({ mobile }).populate('assignedTo', 'name').lean(),
+        Admission.findOne({ mobile }).lean()
       ]);
 
       dbData = {
@@ -583,30 +978,26 @@ Return JSON object with keys: "title" and "content".`;
           mobile: enquiry.mobile,
           course: enquiry.course,
           status: enquiry.status,
-          source: enquiry.source,
           followUpDate: enquiry.followUpDate ? new Date(enquiry.followUpDate).toLocaleDateString('en-IN') : null,
-          assignedTo: enquiry.assignedTo ? enquiry.assignedTo.name : 'Unassigned',
-          createdAt: new Date(enquiry.createdAt).toLocaleDateString('en-IN')
+          assignedTo: enquiry.assignedTo ? enquiry.assignedTo.name : 'Unassigned'
         } : null,
         admission: admission ? {
           name: admission.name,
           mobile: admission.mobile,
           course: admission.course,
           totalFees: admission.totalFees,
-          pendingAmount: admission.installments
-            .filter(i => i.status === 'PENDING')
+          pendingAmount: (admission.installments || [])
+            .filter((i) => i.status === 'PENDING')
             .reduce((sum, i) => sum + i.amount, 0),
-          admissionDate: new Date(admission.admissionDate).toLocaleDateString('en-IN'),
           status: admission.status
         } : null
       };
-      contextHint = `Student details for mobile number ${mobile}`;
+      contextHint = `Student / Enquiry record found for mobile ${mobile}`;
     }
 
-    // ─── Email search ────────────────────────────────────────────────────
+    // ─── 10. Email Search ─────────────────────────────────────────────────
     else if (intent === 'email_search') {
       const email = extractSearchTerm(query, 'email_search');
-
       const [enquiry, admission] = await Promise.all([
         Enquiry.findOne({ email: email.toLowerCase() }).populate('assignedTo', 'name').lean(),
         Admission.findOne({ email: email.toLowerCase() }).lean()
@@ -620,8 +1011,7 @@ Return JSON object with keys: "title" and "content".`;
           email: enquiry.email,
           mobile: enquiry.mobile,
           course: enquiry.course,
-          status: enquiry.status,
-          assignedTo: enquiry.assignedTo ? enquiry.assignedTo.name : 'Unassigned'
+          status: enquiry.status
         } : null,
         admission: admission ? {
           name: admission.name,
@@ -630,38 +1020,35 @@ Return JSON object with keys: "title" and "content".`;
           status: admission.status
         } : null
       };
-      contextHint = `Student details for email ${email}`;
+      contextHint = `Student record for email ${email}`;
     }
 
-    // ─── Name search ─────────────────────────────────────────────────────
-    else {
-      const searchTerm = extractSearchTerm(query, 'name_search');
-
-      if (!searchTerm || searchTerm.length < 2) {
-        return errorResponse(res, 'Kuch aur specific bolo — naam, mobile, ya email chahiye', 400);
-      }
+    // ─── 11. Record / Multi-Field Search (Name, Course, Mobile, Email) ───
+    else if (intent === 'record_search') {
+      const searchTerm = extractSearchTerm(query, 'record_search');
+      const searchRegex = { $regex: searchTerm, $options: 'i' };
+      const searchQuery = {
+        $or: [
+          { name: searchRegex },
+          { course: searchRegex },
+          { mobile: searchRegex },
+          { email: searchRegex }
+        ]
+      };
 
       const [enquiries, admissions] = await Promise.all([
-        Enquiry.find({ $text: { $search: searchTerm } })
+        Enquiry.find(searchQuery)
           .populate('assignedTo', 'name')
-          .select('name mobile email course status followUpDate assignedTo createdAt')
-          .limit(5)
-          .lean()
-          .catch(() =>
-            // Fallback if text index not available
-            Enquiry.find({ name: { $regex: searchTerm, $options: 'i' } })
-              .populate('assignedTo', 'name')
-              .select('name mobile email course status followUpDate assignedTo createdAt')
-              .limit(5)
-              .lean()
-          ),
-        Admission.find({ name: { $regex: searchTerm, $options: 'i' } })
-          .select('name mobile course totalFees installments admissionDate status')
-          .limit(5)
+          .select('name mobile email course status followUpDate assignedTo')
+          .limit(10)
+          .lean(),
+        Admission.find(searchQuery)
+          .select('name mobile course totalFees installments status')
+          .limit(10)
           .lean()
       ]);
 
-      const suggestions = !enquiries.length && !admissions.length
+      const suggestions = (!enquiries.length && !admissions.length)
         ? await findNameSuggestions(searchTerm)
         : [];
 
@@ -669,34 +1056,76 @@ Return JSON object with keys: "title" and "content".`;
         type: 'name_search',
         searchTerm,
         suggestions,
-        enquiries: enquiries.map(e => ({
+        enquiries: enquiries.map((e) => ({
           name: e.name,
           mobile: e.mobile,
           email: e.email,
           course: e.course,
           status: e.status,
           followUpDate: e.followUpDate ? new Date(e.followUpDate).toLocaleDateString('en-IN') : null,
-          assignedTo: e.assignedTo ? e.assignedTo.name : 'Unassigned',
-          addedOn: new Date(e.createdAt).toLocaleDateString('en-IN')
+          assignedTo: e.assignedTo ? e.assignedTo.name : 'Unassigned'
         })),
-        admissions: admissions.map(a => ({
+        admissions: admissions.map((a) => ({
           name: a.name,
           mobile: a.mobile,
           course: a.course,
           totalFees: a.totalFees,
-          pendingAmount: a.installments
-            .filter(i => i.status === 'PENDING')
+          pendingAmount: (a.installments || [])
+            .filter((i) => i.status === 'PENDING')
             .reduce((sum, i) => sum + i.amount, 0),
-          admissionDate: new Date(a.admissionDate).toLocaleDateString('en-IN'),
           status: a.status
         }))
       };
-      contextHint = `Search results for "${searchTerm}"`;
+      contextHint = `Search results across students, courses, leads for query term "${searchTerm}"`;
     }
 
-    // ─── Get AI-formatted response from Gemini ───────────────────────────
+    // ─── 12. General AI Assistance & Custom Multi-Condition Queries ────────
+    else {
+      const [recentAdmissions, recentEnquiries, totalAdmissions, totalEnquiries] = await Promise.all([
+        Admission.find({ status: 'ACTIVE' })
+          .select('name mobile course totalFees installments status createdAt')
+          .sort({ createdAt: -1 })
+          .limit(15)
+          .lean(),
+        Enquiry.find()
+          .populate('assignedTo', 'name')
+          .select('name mobile email course status followUpDate assignedTo createdAt')
+          .sort({ createdAt: -1 })
+          .limit(15)
+          .lean(),
+        Admission.countDocuments({ status: 'ACTIVE' }),
+        Enquiry.countDocuments()
+      ]);
+
+      dbData = {
+        type: 'general_assistance',
+        activeStudents: totalAdmissions,
+        totalLeads: totalEnquiries,
+        institute: 'SSSAM Academy CRM',
+        sampleAdmissions: recentAdmissions.map((a) => ({
+          name: a.name,
+          mobile: a.mobile,
+          course: a.course,
+          totalFees: a.totalFees,
+          pendingFee: (a.installments || [])
+            .filter((i) => i.status === 'PENDING')
+            .reduce((sum, i) => sum + i.amount, 0),
+          status: a.status
+        })),
+        sampleEnquiries: recentEnquiries.map((e) => ({
+          name: e.name,
+          mobile: e.mobile,
+          course: e.course,
+          status: e.status,
+          assignedTo: e.assignedTo ? e.assignedTo.name : 'Unassigned'
+        }))
+      };
+      contextHint = `General assistance, custom filtering, and reasoning for query: "${query}"`;
+    }
+
+    // ─── Generate AI Response via Groq / Gemini ───────────────────────────
     const aiResponse = await formatCRMResponse(
-      `${contextHint}\nOriginal user query: "${query}"`,
+      `${contextHint}\nUser Query: "${query}"`,
       dbData,
       {
         language,
@@ -709,12 +1138,23 @@ Return JSON object with keys: "title" and "content".`;
       message: aiResponse,
       intent,
       language,
-      action: null,
+      action: action || null,
       rawData: dbData
     }, 'Chat response generated successfully');
+  });
+
+  /**
+   * GET /api/notes
+   * Direct notes fetch for WhatsApp popup (no AI needed)
+   */
+  getNotes = catchAsync(async (req, res) => {
+    const filter = req.user ? { userId: req.user.id } : {};
+    const notes = await Note.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+    return successResponse(res, { notes }, 'Notes fetched');
   });
 }
 
 module.exports = new ChatController();
-
-

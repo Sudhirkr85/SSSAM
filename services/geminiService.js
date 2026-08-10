@@ -159,32 +159,42 @@ async function callWithFallback(primary, fallback) {
 }
 
 function buildResponseSystemContext(data, options = {}) {
-  const language = options.language || 'hindi';
+  const language = options.language || 'english';
   const inputMode = options.inputMode || (language === 'hindi' ? 'hinglish' : 'english');
   const responseStyle = options.responseStyle;
 
   const langInstruction = language === 'hindi'
     ? inputMode === 'hinglish'
-      ? 'Understand Hinglish typed in English letters and respond in natural Hindi written in English letters. Do not switch to Devanagari unless the user explicitly asks for it. Keep the tone friendly and easy to understand.'
-      : 'Respond in Hindi. Keep it conversational and friendly.'
-    : 'Respond in clear, proper English. Keep it conversational and friendly.';
+      ? 'Respond in natural, conversational Hinglish (Hindi written in English letters). Keep the tone warm, professional, and friendly.'
+      : 'Respond in polite, conversational Hindi. Keep the tone helpful and professional.'
+    : 'Respond in clear, professional, modern English with a warm and helpful tone.';
+
+  const formattingInstruction = `
+Format your answers like a top-tier AI Assistant (ChatGPT / Claude):
+1. **Clear Structure**: Use bold section titles with appropriate emojis (e.g. 📊 **Overview**, 📋 **Student Details**, 💰 **Fee Breakdown**, ✍️ **Drafted Message**).
+2. **Key Metric Highlights**: When statistics, counts, or monetary figures are present, highlight them clearly (e.g. *Total Enquiries: 12* | *Pending: ₹45,000*).
+3. **Structured Cards**: When displaying students or enquiries, format each as a neat structured block:
+   - **[Student Name]** • [Course] • 📱 [Mobile]
+   - Status: [🟢 Active / 🟡 Follow-up / 🔴 Overdue] | Amount / Info: [Details]
+4. **Drafting Messages**: When asked to draft a message, provide a clean, copy-paste-ready WhatsApp/SMS message with placeholders like [Student Name].
+5. **Next Steps & Quick Tips**: Always include a 1-line helpful suggestion at the end (e.g. *💡 You can say "Call [Name]" or "Show pending fees" to explore further.*).
+6. **No Raw Dumps**: Never dump raw unformatted JSON or walls of plain text.`;
 
   const suggestionInstruction = data && Array.isArray(data.suggestions) && data.suggestions.length
-    ? 'No exact match was found. Offer these likely matches and ask the user to confirm one of them:\n' + data.suggestions.map((item, index) => `${index + 1}. ${item}`).join('\n')
-    : 'If data is empty, say so politely and ask one short follow-up question that helps the user refine the search.';
+    ? 'No exact match was found. Offer these likely matches and ask the user to confirm:\n' + data.suggestions.map((item, index) => `${index + 1}. ${item}`).join('\n')
+    : '';
 
-  const styleInstruction = responseStyle
-    ? `Follow this response style: ${responseStyle}`
-    : 'Keep responses concise, clear, and nicely formatted.';
+  const styleInstruction = responseStyle ? `Specific User Preference: ${responseStyle}` : '';
 
-  return `You are an AI assistant for a coaching institute CRM system called SSSAM CRM.
-Your job is to help staff members quickly get information about students, enquiries, follow-ups, and fees.
+  return `You are SSSAM AI Assistant, the intelligent AI assistant for SSSAM Coaching & Education CRM.
+You help staff and administrators manage admissions, follow-ups, fee payments, enquiry leads, message drafting, and institute operations.
+
 ${langInstruction}
+${formattingInstruction}
 ${styleInstruction}
 ${suggestionInstruction}
-Use light formatting for readability, but keep the reply compact.
 
-Here is the CRM data relevant to the query:
+Here is the live CRM data context:
 ${JSON.stringify(data, null, 2)}`;
 }
 
@@ -197,31 +207,77 @@ function formatFallbackLocalResponse(query, data, options = {}) {
       : `No results found for "${query}". Please check the name, mobile number, or email.`;
   }
 
-  // 1. Today Followups
+  // 1. Analytics Summary
+  if (data.type === 'analytics_summary' && data.analytics) {
+    const a = data.analytics;
+    if (isHindi) {
+      return `📊 **SSSAM CRM ओवरव्यू व एनालिटिक्स**\n\n` +
+        `• 👨‍🎓 **कुल सक्रिय छात्र (Active Students):** ${a.activeStudents}\n` +
+        `• 🆕 **इस महीने के एडमिशन्स (This Month):** ${a.thisMonthAdmissions} (आज: ${a.todayAdmissions})\n` +
+        `• 📋 **कुल इन्क्वायरी लीड्स:** ${a.totalEnquiries} (नई लीड्स: ${a.newEnquiries})\n` +
+        `• 📅 **आज के फॉलो-अप्स:** ${a.todayFollowupsCount}\n` +
+        `• 💰 **कुल पेंडिंग फीस:** ₹${(a.totalPendingFees || 0).toLocaleString('en-IN')}\n\n` +
+        `💡 *सुझाव:* किसी भी जानकारी के लिए 'today follow up' या 'pending fees' कहें।`;
+    }
+    return `📊 **SSSAM CRM Overview & Analytics**\n\n` +
+      `• 👨‍🎓 **Total Active Students:** ${a.activeStudents}\n` +
+      `• 🆕 **This Month's Admissions:** ${a.thisMonthAdmissions} (Today: ${a.todayAdmissions})\n` +
+      `• 📋 **Total Enquiries:** ${a.totalEnquiries} (New Leads: ${a.newEnquiries})\n` +
+      `• 📅 **Today's Scheduled Follow-ups:** ${a.todayFollowupsCount}\n` +
+      `• 💰 **Total Outstanding Pending Fees:** ₹${(a.totalPendingFees || 0).toLocaleString('en-IN')}\n\n` +
+      `💡 *Tip:* Ask "show today's follow-ups" or "who has pending fees" for detailed breakdowns.`;
+  }
+
+  // 2. Course Info
+  if (data.type === 'course_info') {
+    const courses = data.courses || [];
+    if (courses.length === 0) {
+      return isHindi ? '📚 संस्थान में अभी कोई कोर्स सक्रिय नहीं है।' : '📚 No active courses found.';
+    }
+    let text = isHindi ? `📚 **SSSAM कोर्सेस व विवरण (${courses.length} Courses):**\n\n` : `📚 **SSSAM Active Courses (${courses.length} Courses):**\n\n`;
+    courses.forEach((c, i) => {
+      text += `${i + 1}. **${c.name}**\n   • Enrolled Students: ${c.enrolledStudents}\n   • Fee Range: ₹${c.feeRange.min.toLocaleString('en-IN')} - ₹${c.feeRange.max.toLocaleString('en-IN')}\n\n`;
+    });
+    return text.trim();
+  }
+
+  // 3. Draft Message
+  if (data.type === 'draft_message' && data.template) {
+    const t = data.template;
+    return isHindi
+      ? `✍️ **तैयार किया गया मैसेज ड्राफ्ट (${t.type.toUpperCase()}):**\n\n📌 **विषय:** ${t.subject}\n\n---\n${t.body}\n---\n\n💡 *कॉपी करके छात्र को WhatsApp या SMS पर भेजें।*`
+      : `✍️ **Drafted Message Template (${t.type.toUpperCase()}):**\n\n📌 **Subject:** ${t.subject}\n\n---\n${t.body}\n---\n\n💡 *Ready to copy & paste into WhatsApp or SMS.*`;
+  }
+
+  // 4. Today Followups
   if (data.type === 'today_followups') {
-    if (!data.count || data.count === 0) {
+    const followups = data.followups || [];
+    if (followups.length === 0) {
       return isHindi
         ? `📅 Aaj ke liye koi pending follow-up nahi hai! Sab set hai.`
         : `📅 No follow-ups scheduled for today. All clear!`;
     }
-    return isHindi
-      ? `📅 **Aaj ke ${data.count} Follow-up(s) hain:**`
-      : `📅 **Today's ${data.count} Follow-up(s):**`;
+    let text = isHindi ? `📅 **आज के ${data.count} Follow-up(s):**\n\n` : `📅 **Today's ${data.count} Scheduled Follow-up(s):**\n\n`;
+    followups.forEach((f, i) => {
+      text += `${i + 1}. **${f.name}** (📱 ${f.mobile})\n   • Course: ${f.course || 'N/A'}\n   • Time: ${f.followUpTime || 'Today'}\n   • Counselor: ${f.assignedTo || 'Unassigned'}\n\n`;
+    });
+    return text.trim();
   }
 
-  // 2. Pending Fees
+  // 5. Pending Fees
   if (data.type === 'pending_fees') {
-    if (!data.count || data.count === 0) {
-      return isHindi
-        ? `💰 Koi pending fees nahi mili!`
-        : `💰 No students with pending fees found!`;
+    const students = data.students || [];
+    if (students.length === 0) {
+      return isHindi ? `💰 Koi pending fees nahi mili!` : `💰 No students with pending fees found!`;
     }
-    return isHindi
-      ? `💰 **Pending Fees (${data.count} Students):**`
-      : `💰 **Pending Fees (${data.count} Students):**`;
+    let text = isHindi ? `💰 **पेंडिंग फीस विवरण (${data.count} Students):**\n\n` : `💰 **Outstanding Pending Fees (${data.count} Students):**\n\n`;
+    students.forEach((s, i) => {
+      text += `${i + 1}. **${s.name}** (📱 ${s.mobile})\n   • Course: ${s.course || 'N/A'}\n   • Pending Due: **₹${(s.pendingAmount || 0).toLocaleString('en-IN')}**\n   • Due Date: ${s.dueDate || 'Immediate'}\n\n`;
+    });
+    return text.trim();
   }
 
-  // 3. Mobile Search
+  // 6. Mobile Search
   if (data.type === 'mobile_search') {
     const e = data.enquiry;
     const a = data.admission;
@@ -240,7 +296,7 @@ function formatFallbackLocalResponse(query, data, options = {}) {
     return text.trim();
   }
 
-  // 4. Email Search
+  // 7. Email Search
   if (data.type === 'email_search') {
     const e = data.enquiry;
     const a = data.admission;
@@ -259,7 +315,7 @@ function formatFallbackLocalResponse(query, data, options = {}) {
     return text.trim();
   }
 
-  // 5. Name Search
+  // 8. Name Search
   if (data.type === 'name_search') {
     const enq = data.enquiries || [];
     const adm = data.admissions || [];
@@ -293,9 +349,59 @@ function formatFallbackLocalResponse(query, data, options = {}) {
     return text.trim();
   }
 
+  // 9. Attendance Report
+  if (data.type === 'attendance_report') {
+    if (isHindi) {
+      let text = `📋 **आज की स्टाफ अटेंडेंस रिपोर्ट (${data.date})**\n\n` +
+        `• 👥 **कुल स्टाफ:** ${data.totalStaff}\n` +
+        `• 🟢 **उपस्थित (Present):** ${data.present}\n` +
+        `• 🔴 **अनुपस्थित (Absent):** ${data.absent}\n` +
+        `• 🟡 **छुट्टी (Leave/Weekoff):** ${data.onLeave + data.weekoff}\n\n` +
+        `**स्टाफ उपस्थिति विवरण:**\n`;
+      (data.staff || []).forEach((s, i) => {
+        const timeStr = s.inTime ? ` (IN: ${s.inTime}${s.outTime ? `, OUT: ${s.outTime}` : ''})` : '';
+        text += `${i + 1}. **${s.name}** [${s.role}] — ${s.status === 'PRESENT (IN)' || s.status === 'PUNCHED OUT' ? '🟢' : s.status === 'LEAVE' ? '🟡' : '🔴'} ${s.status}${timeStr}\n`;
+      });
+      return text.trim();
+    }
+    let text = `📋 **Staff Attendance Report (${data.date})**\n\n` +
+      `• 👥 **Total Staff:** ${data.totalStaff}\n` +
+      `• 🟢 **Present:** ${data.present}\n` +
+      `• 🔴 **Absent:** ${data.absent}\n` +
+      `• 🟡 **On Leave/Weekoff:** ${data.onLeave + data.weekoff}\n\n` +
+      `**Staff Breakdown:**\n`;
+    (data.staff || []).forEach((s, i) => {
+      const timeStr = s.inTime ? ` (IN: ${s.inTime}${s.outTime ? `, OUT: ${s.outTime}` : ''})` : '';
+      text += `${i + 1}. **${s.name}** (${s.role}) — ${s.status === 'PRESENT (IN)' || s.status === 'PUNCHED OUT' ? '🟢' : s.status === 'LEAVE' ? '🟡' : '🔴'} ${s.status}${timeStr}\n`;
+    });
+    return text.trim();
+  }
+
+  // 10. Payment / Fee Collection Report
+  if (data.type === 'payment_report') {
+    if (isHindi) {
+      let text = `💰 **फीस कलेक्शन व पेमेंट रिपोर्ट**\n\n` +
+        `• 💵 **आज का कलेक्शन (Today):** ₹${(data.todayCollection || 0).toLocaleString('en-IN')} (${data.todayCount} ट्रांजेक्शन)\n` +
+        `• 📈 **इस महीने का कलेक्शन (This Month):** ₹${(data.monthCollection || 0).toLocaleString('en-IN')} (${data.monthCount} ट्रांजेक्शन)\n\n` +
+        `**हाल के पेमेंट्स (Recent Transactions):**\n`;
+      (data.recentTransactions || []).forEach((t, i) => {
+        text += `${i + 1}. **${t.studentName}** — ₹${(t.amount || 0).toLocaleString('en-IN')} (${t.mode}) [${t.date}]\n`;
+      });
+      return text.trim();
+    }
+    let text = `💰 **Fee Collection & Revenue Report**\n\n` +
+      `• 💵 **Today's Collection:** ₹${(data.todayCollection || 0).toLocaleString('en-IN')} (${data.todayCount} transactions)\n` +
+      `• 📈 **This Month's Collection:** ₹${(data.monthCollection || 0).toLocaleString('en-IN')} (${data.monthCount} transactions)\n\n` +
+      `**Recent Transactions:**\n`;
+    (data.recentTransactions || []).forEach((t, i) => {
+      text += `${i + 1}. **${t.studentName}** — ₹${(t.amount || 0).toLocaleString('en-IN')} (${t.mode}) [${t.date}]\n`;
+    });
+    return text.trim();
+  }
+
   return isHindi
-    ? `Processed query "${query}"`
-    : `Processed query "${query}"`;
+    ? `Main aapke CRM prashna mein sahayata karne ke liye taiyaar hoon.`
+    : `I am ready to assist you with any CRM query.`;
 }
 
 async function formatCRMResponse(query, data, options = {}) {
