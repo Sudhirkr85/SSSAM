@@ -70,6 +70,29 @@ class AdmissionService {
           }
         }
       });
+    } else {
+      // If enquiryId not provided, search by mobile or auto-create walk-in enquiry
+      const existingEnquiry = await Enquiry.findOne({ mobile });
+      if (existingEnquiry) {
+        await Enquiry.findByIdAndUpdate(existingEnquiry._id, {
+          status: 'ADMITTED',
+          followUpDate: null,
+          updatedAt: new Date()
+        });
+        enquiryId = existingEnquiry._id;
+      } else {
+        try {
+          const newEnq = await Enquiry.create({
+            name: name.trim(),
+            mobile,
+            course: course.trim(),
+            source: 'walk_in',
+            status: 'ADMITTED',
+            createdBy: user.id
+          });
+          enquiryId = newEnq._id;
+        } catch (_) {}
+      }
     }
 
     const admission = await Admission.create({
